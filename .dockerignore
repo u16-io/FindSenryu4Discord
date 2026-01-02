@@ -1,0 +1,5 @@
+*
+!**/*.go
+!go.mod
+!go.sum
+!config.toml

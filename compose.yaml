@@ -1,0 +1,7 @@
+services:
+  app:
+    build: .
+    restart: always
+    volumes:
+      - "./data:/go/src/github.com/0x307e/FindSenryu4Discord/data"
+      - "./config.toml:/app/config.toml:ro"
