@@ -1,4 +1,4 @@
-module github.com/makotia/FindSenryu4Discord
+module github.com/0x307e/FindSenryu4Discord
 
 go 1.14
 
@@ -10,7 +10,7 @@ require (
 	github.com/gorilla/websocket v1.4.2 // indirect
 	github.com/jinzhu/gorm v1.9.16
 	github.com/ledisdb/ledisdb v0.0.0-20200510135210-d35789ec47e6
-	github.com/makotia/go-haiku v0.0.0-20210502160921-7e5d583ca9a2
+	github.com/0x307e/go-haiku v0.0.0-20210502160921-7e5d583ca9a2
 	github.com/mattn/go-sqlite3 v1.14.7
 	github.com/pelletier/go-toml v1.9.0 // indirect
 	github.com/siddontang/go v0.0.0-20180604090527-bdc77568d726 // indirect

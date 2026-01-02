@@ -9,13 +9,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/makotia/FindSenryu4Discord/db"
-	"github.com/makotia/FindSenryu4Discord/model"
-	"github.com/makotia/FindSenryu4Discord/service"
+	"github.com/0x307e/FindSenryu4Discord/db"
+	"github.com/0x307e/FindSenryu4Discord/model"
+	"github.com/0x307e/FindSenryu4Discord/service"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/makotia/FindSenryu4Discord/config"
-	"github.com/makotia/go-haiku"
+	"github.com/0x307e/FindSenryu4Discord/config"
+	"github.com/0x307e/go-haiku"
 )
 
 func main() {
@@ -142,8 +142,8 @@ func handleRanking(m *discordgo.MessageCreate, s *discordgo.Session) {
 			Title:     "サーバー内ランキング",
 			Timestamp: time.Now().Format(time.RFC3339),
 			Footer: &discordgo.MessageEmbedFooter{
-				Text:    "This bot was made by makotia.",
-				IconURL: "https://github.com/makotia.png",
+				Text:    "This bot was made by 0x307e.",
+				IconURL: "https://github.com/0x307e.png",
 			},
 			Thumbnail: &discordgo.MessageEmbedThumbnail{
 				URL: s.State.User.AvatarURL(""),

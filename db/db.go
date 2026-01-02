@@ -5,7 +5,7 @@ import (
 	"os"
 
 	"github.com/jinzhu/gorm"
-	"github.com/makotia/FindSenryu4Discord/model"
+	"github.com/0x307e/FindSenryu4Discord/model"
 
 	// SQLite3 driver for Gorm
 	_ "github.com/mattn/go-sqlite3"

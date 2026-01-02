@@ -5,8 +5,8 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/makotia/FindSenryu4Discord/db"
-	"github.com/makotia/FindSenryu4Discord/model"
+	"github.com/0x307e/FindSenryu4Discord/db"
+	"github.com/0x307e/FindSenryu4Discord/model"
 )
 
 // CreateSenryu is create senryu service.

@@ -3,7 +3,7 @@ package service
 import (
 	"os"
 
-	"github.com/makotia/FindSenryu4Discord/db"
+	"github.com/0x307e/FindSenryu4Discord/db"
 )
 
 // IsMute is true if the channel is muted.
