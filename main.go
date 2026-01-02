@@ -118,8 +118,18 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	if ch.Type != discordgo.ChannelTypeGuildText {
+	// チャンネル種別ごとの振る舞い
+	switch ch.Type {
+	case discordgo.ChannelTypeDM, discordgo.ChannelTypeGroupDM:
+		// 個チャ・グループDMでは注意を出して終了
 		s.ChannelMessageSend(m.ChannelID, "個チャはダメです")
+		return
+	case discordgo.ChannelTypeGuildVoice, discordgo.ChannelTypeGuildStageVoice:
+		// VC内のテキストチャンネルでは反応しない
+		return
+	}
+	// それ以外（通常のテキストチャンネルなど）のみ処理継続
+	if ch.Type != discordgo.ChannelTypeGuildText {
 		return
 	}
 
