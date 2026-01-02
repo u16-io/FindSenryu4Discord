@@ -12,7 +12,6 @@ var conf *Config
 type Config struct {
 	Discord struct {
 		Token    string `toml:"Token"`
-		Prefix   string `toml:"Prefix"`
 		Playing  string `toml:"Playing"`
 		ClientID string `toml:"ClientID"`
 	} `toml:"Discord"`
@@ -27,9 +26,4 @@ func init() {
 // GetConf is return config
 func GetConf() *Config {
 	return conf
-}
-
-// GetPrefix is return prefix
-func GetPrefix() string {
-	return conf.Discord.Prefix
 }

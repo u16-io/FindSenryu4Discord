@@ -18,6 +18,29 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
+var (
+	commands = []*discordgo.ApplicationCommand{
+		{
+			Name:        "mute",
+			Description: "このチャンネルでの川柳検出をミュートします",
+		},
+		{
+			Name:        "unmute",
+			Description: "このチャンネルでの川柳検出のミュートを解除します",
+		},
+		{
+			Name:        "rank",
+			Description: "ギルド内で詠んだ回数が多い人のランキングを表示します",
+		},
+	}
+
+	commandHandlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
+		"mute":   handleMuteCommand,
+		"unmute": handleUnmuteCommand,
+		"rank":   handleRankCommand,
+	}
+)
+
 func main() {
 	var (
 		err error
@@ -30,6 +53,7 @@ func main() {
 		log.Fatal("error creating Discord session")
 	}
 	dg.AddHandler(messageCreate)
+	dg.AddHandler(interactionCreate)
 	err = dg.Open()
 	if err != nil {
 		fmt.Println(err)
@@ -37,6 +61,19 @@ func main() {
 	}
 
 	db.Init()
+
+	// Register slash commands
+	log.Println("Registering slash commands...")
+	registeredCommands := make([]*discordgo.ApplicationCommand, len(commands))
+	for i, cmd := range commands {
+		rcmd, err := dg.ApplicationCommandCreate(dg.State.User.ID, "", cmd)
+		if err != nil {
+			log.Printf("Cannot create '%v' command: %v", cmd.Name, err)
+		} else {
+			registeredCommands[i] = rcmd
+			log.Printf("Registered command: %s", cmd.Name)
+		}
+	}
 
 	dg.UpdateGameStatus(1, conf.Discord.Playing)
 	fmt.Println("[Servers]")
@@ -50,7 +87,24 @@ func main() {
 	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt, os.Kill)
 	<-sc
 
+	// Cleanup registered commands
+	log.Println("Removing slash commands...")
+	for _, cmd := range registeredCommands {
+		if cmd != nil {
+			err := dg.ApplicationCommandDelete(dg.State.User.ID, "", cmd.ID)
+			if err != nil {
+				log.Printf("Cannot delete '%v' command: %v", cmd.Name, err)
+			}
+		}
+	}
+
 	dg.Close()
+}
+
+func interactionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	if h, ok := commandHandlers[i.ApplicationCommandData().Name]; ok {
+		h(s, i)
+	}
 }
 
 func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
@@ -69,7 +123,7 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	if handleCommand(m, s) || handleYomeYomuna(m, s) {
+	if handleYomeYomuna(m, s) {
 		return
 	}
 
@@ -99,74 +153,98 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 var medals = []string{"🥇", "🥈", "🥉", "🎖️", "🎖️"}
 
-func handleCommand(m *discordgo.MessageCreate, s *discordgo.Session) bool {
-	prefix := config.GetPrefix()
-	cmd := strings.Replace(m.Content, prefix, "", 1)
-
-	if strings.HasPrefix(cmd, "mute") {
-		if err := service.ToMute(m.ChannelID); err != nil {
-			s.MessageReactionAdd(m.ChannelID, m.ID, "❌")
-		} else {
-			s.MessageReactionAdd(m.ChannelID, m.ID, "✅")
-		}
-		return true
+func handleMuteCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	if err := service.ToMute(i.ChannelID); err != nil {
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "ミュートに失敗しました ❌",
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+	} else {
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "このチャンネルでの川柳検出をミュートしました ✅",
+			},
+		})
 	}
-
-	if strings.HasPrefix(cmd, "unmute") {
-		if err := service.ToUnMute(m.ChannelID); err != nil {
-			s.MessageReactionAdd(m.ChannelID, m.ID, "❌")
-		} else {
-			s.MessageReactionAdd(m.ChannelID, m.ID, "✅")
-		}
-		return true
-	}
-
-	if strings.HasPrefix(cmd, "rank") {
-		handleRanking(m, s)
-		return true
-	}
-
-	return false
 }
 
-func handleRanking(m *discordgo.MessageCreate, s *discordgo.Session) {
+func handleUnmuteCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	if err := service.ToUnMute(i.ChannelID); err != nil {
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "ミュート解除に失敗しました ❌",
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+	} else {
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "このチャンネルでの川柳検出のミュートを解除しました ✅",
+			},
+		})
+	}
+}
+
+func handleRankCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	var (
 		ranks  []service.RankResult
 		errArr []error
 	)
-	if ranks, errArr = service.GetRanking(m.GuildID); len(errArr) != 0 {
+
+	if ranks, errArr = service.GetRanking(i.GuildID); len(errArr) != 0 {
 		fmt.Println(errArr)
-	} else {
-		embed := discordgo.MessageEmbed{
-			Type:      discordgo.EmbedTypeRich,
-			Title:     "サーバー内ランキング",
-			Timestamp: time.Now().Format(time.RFC3339),
-			Footer: &discordgo.MessageEmbedFooter{
-				Text:    "This bot was made by 0x307e.",
-				IconURL: "https://github.com/0x307e.png",
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "ランキングの取得に失敗しました",
+				Flags:   discordgo.MessageFlagsEphemeral,
 			},
-			Thumbnail: &discordgo.MessageEmbedThumbnail{
-				URL: s.State.User.AvatarURL(""),
-			},
-			Author: &discordgo.MessageEmbedAuthor{
-				Name:    m.Author.Username,
-				IconURL: m.Author.AvatarURL(""),
-			},
-			Fields: []*discordgo.MessageEmbedField{},
-		}
-		for _, rank := range ranks {
-			user, err := s.User(rank.AuthorId)
-			if err != nil {
-				continue
-			}
-			embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-				Name:   fmt.Sprintf("%s 第%d位: %d回", medals[rank.Rank-1], rank.Rank, rank.Count),
-				Value:  user.Username,
-				Inline: true,
-			})
-		}
-		s.ChannelMessageSendEmbed(m.ChannelID, &embed)
+		})
+		return
 	}
+
+	embed := discordgo.MessageEmbed{
+		Type:      discordgo.EmbedTypeRich,
+		Title:     "サーバー内ランキング",
+		Timestamp: time.Now().Format(time.RFC3339),
+		Footer: &discordgo.MessageEmbedFooter{
+			Text:    "This bot was made by 0x307e.",
+			IconURL: "https://github.com/0x307e.png",
+		},
+		Thumbnail: &discordgo.MessageEmbedThumbnail{
+			URL: s.State.User.AvatarURL(""),
+		},
+		Author: &discordgo.MessageEmbedAuthor{
+			Name:    i.Member.User.Username,
+			IconURL: i.Member.User.AvatarURL(""),
+		},
+		Fields: []*discordgo.MessageEmbedField{},
+	}
+
+	for _, rank := range ranks {
+		user, err := s.User(rank.AuthorId)
+		if err != nil {
+			continue
+		}
+		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
+			Name:   fmt.Sprintf("%s 第%d位: %d回", medals[rank.Rank-1], rank.Rank, rank.Count),
+			Value:  user.Username,
+			Inline: true,
+		})
+	}
+
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Embeds: []*discordgo.MessageEmbed{&embed},
+		},
+	})
 }
 
 func handleYomeYomuna(m *discordgo.MessageCreate, s *discordgo.Session) bool {
