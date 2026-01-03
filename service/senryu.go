@@ -14,9 +14,6 @@ func CreateSenryu(s model.Senryu) (model.Senryu, []error) {
 	if errArr := db.DB.Create(&s).GetErrors(); len(errArr) != 0 {
 		return s, errArr
 	}
-	if _, err := db.LDB.ZIncrBy([]byte(s.ServerID), 1, []byte(s.AuthorID)); err != nil {
-		return s, []error{err}
-	}
 	return s, nil
 }
 

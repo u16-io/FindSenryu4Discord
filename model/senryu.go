@@ -9,3 +9,8 @@ type Senryu struct {
 	Nakasichi string
 	Simogo    string
 }
+
+// MutedChannel is struct of muted channel.
+type MutedChannel struct {
+	ChannelID string `gorm:"primaryKey"`
+}
