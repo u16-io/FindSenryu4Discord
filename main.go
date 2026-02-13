@@ -143,6 +143,7 @@ func main() {
 	dg.AddHandler(messageCreate)
 	dg.AddHandler(interactionCreate)
 	dg.AddHandler(guildCreate)
+	dg.AddHandler(guildDelete)
 
 	// Open connection
 	if err := dg.Open(); err != nil {
@@ -289,6 +290,14 @@ func guildCreate(s *discordgo.Session, g *discordgo.GuildCreate) {
 	metrics.SetConnectedGuilds(len(s.State.Guilds))
 	if botReady.Load() && intelligenceManager != nil {
 		intelligenceManager.NotifyGuildJoin(g.Guild)
+	}
+}
+
+func guildDelete(s *discordgo.Session, g *discordgo.GuildDelete) {
+	logger.Info("Left guild", "id", g.ID)
+	metrics.SetConnectedGuilds(len(s.State.Guilds))
+	if botReady.Load() && intelligenceManager != nil {
+		intelligenceManager.NotifyGuildLeave(g)
 	}
 }
 

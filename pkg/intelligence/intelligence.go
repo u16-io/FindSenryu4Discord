@@ -64,14 +64,55 @@ func (m *Manager) NotifyGuildJoin(guild *discordgo.Guild) {
 		return
 	}
 
-	memberCount := guild.MemberCount
-	msg := fmt.Sprintf("**[サーバー参加]** `%s` (ID: `%s`) — メンバー数: %d", guild.Name, guild.ID, memberCount)
+	embed := &discordgo.MessageEmbed{
+		Title:     "サーバー参加",
+		Color:     0x57F287,
+		Timestamp: time.Now().Format(time.RFC3339),
+		Thumbnail: &discordgo.MessageEmbedThumbnail{
+			URL: guild.IconURL(""),
+		},
+		Fields: []*discordgo.MessageEmbedField{
+			{Name: "サーバー名", Value: guild.Name, Inline: true},
+			{Name: "サーバーID", Value: guild.ID, Inline: true},
+			{Name: "メンバー数", Value: fmt.Sprintf("%d", guild.MemberCount), Inline: true},
+		},
+	}
 
-	if _, err := m.session.ChannelMessageSend(m.logChannelID, msg); err != nil {
+	if _, err := m.session.ChannelMessageSendEmbed(m.logChannelID, embed); err != nil {
 		logger.Error("Failed to send guild join notification",
 			"error", err,
 			"guild_id", guild.ID,
 			"guild_name", guild.Name,
+		)
+	}
+}
+
+// NotifyGuildLeave sends a guild leave notification to the log channel.
+func (m *Manager) NotifyGuildLeave(guild *discordgo.GuildDelete) {
+	if m.logChannelID == "" {
+		return
+	}
+
+	fields := []*discordgo.MessageEmbedField{
+		{Name: "サーバーID", Value: guild.ID, Inline: true},
+	}
+	if guild.Name != "" {
+		fields = append(fields, &discordgo.MessageEmbedField{
+			Name: "サーバー名", Value: guild.Name, Inline: true,
+		})
+	}
+
+	embed := &discordgo.MessageEmbed{
+		Title:     "サーバー脱退",
+		Color:     0xED4245,
+		Timestamp: time.Now().Format(time.RFC3339),
+		Fields:    fields,
+	}
+
+	if _, err := m.session.ChannelMessageSendEmbed(m.logChannelID, embed); err != nil {
+		logger.Error("Failed to send guild leave notification",
+			"error", err,
+			"guild_id", guild.ID,
 		)
 	}
 }
