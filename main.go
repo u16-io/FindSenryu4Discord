@@ -296,8 +296,19 @@ func guildCreate(s *discordgo.Session, g *discordgo.GuildCreate) {
 func guildDelete(s *discordgo.Session, g *discordgo.GuildDelete) {
 	logger.Info("Left guild", "id", g.ID)
 	metrics.SetConnectedGuilds(len(s.State.Guilds))
+
+	// Clean up guild data
+	senryuCount, err := service.DeleteSenryuByServer(g.ID)
+	if err != nil {
+		logger.Error("Failed to clean up senryus on guild leave", "error", err, "guild_id", g.ID)
+	}
+	optOutCount, err := service.DeleteOptOutByServer(g.ID)
+	if err != nil {
+		logger.Error("Failed to clean up opt-outs on guild leave", "error", err, "guild_id", g.ID)
+	}
+
 	if botReady.Load() && adminNotifier != nil {
-		adminNotifier.NotifyGuildLeave(g)
+		adminNotifier.NotifyGuildLeave(g, senryuCount, optOutCount)
 	}
 }
 

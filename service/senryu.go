@@ -201,6 +201,27 @@ func DeleteSenryu(id int, serverID string) error {
 	return nil
 }
 
+// DeleteSenryuByServer deletes all senryus belonging to a server
+func DeleteSenryuByServer(serverID string) (int64, error) {
+	metrics.RecordDatabaseOperation("delete_senryu_by_server")
+
+	result := db.DB.Where("server_id = ?", serverID).Delete(&model.Senryu{})
+	if result.Error != nil {
+		metrics.RecordError("database")
+		logger.Error("Failed to delete senryus by server",
+			"error", result.Error,
+			"server_id", serverID,
+		)
+		return 0, errors.Wrap(result.Error, "failed to delete senryus by server")
+	}
+
+	logger.Info("Senryus deleted by server",
+		"server_id", serverID,
+		"count", result.RowsAffected,
+	)
+	return result.RowsAffected, nil
+}
+
 // CountSenryuByDateRange returns the count of senryus created within the given time range [from, to)
 func CountSenryuByDateRange(from, to time.Time) (int64, error) {
 	metrics.RecordDatabaseOperation("count_senryu_by_date_range")

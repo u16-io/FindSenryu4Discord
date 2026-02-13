@@ -41,6 +41,27 @@ func OptOutDetection(serverID, userID string) error {
 	return nil
 }
 
+// DeleteOptOutByServer deletes all detection opt-outs belonging to a server
+func DeleteOptOutByServer(serverID string) (int64, error) {
+	metrics.RecordDatabaseOperation("delete_opt_out_by_server")
+
+	result := db.DB.Where("server_id = ?", serverID).Delete(&model.DetectionOptOut{})
+	if result.Error != nil {
+		metrics.RecordError("database")
+		logger.Error("Failed to delete opt-outs by server",
+			"error", result.Error,
+			"server_id", serverID,
+		)
+		return 0, errors.Wrap(result.Error, "failed to delete opt-outs by server")
+	}
+
+	logger.Info("Opt-outs deleted by server",
+		"server_id", serverID,
+		"count", result.RowsAffected,
+	)
+	return result.RowsAffected, nil
+}
+
 // OptInDetection opts a user back in to detection in a server
 func OptInDetection(serverID, userID string) error {
 	metrics.RecordDatabaseOperation("opt_in_detection")

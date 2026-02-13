@@ -89,7 +89,7 @@ func (m *Manager) NotifyGuildJoin(guild *discordgo.Guild) {
 }
 
 // NotifyGuildLeave sends a guild leave notification to the log channel.
-func (m *Manager) NotifyGuildLeave(guild *discordgo.GuildDelete) {
+func (m *Manager) NotifyGuildLeave(guild *discordgo.GuildDelete, deletedSenryus, deletedOptOuts int64) {
 	if m.logChannelID == "" {
 		return
 	}
@@ -102,6 +102,14 @@ func (m *Manager) NotifyGuildLeave(guild *discordgo.GuildDelete) {
 			Name: "🏠 サーバー名", Value: guild.Name, Inline: true,
 		})
 	}
+	fields = append(fields,
+		&discordgo.MessageEmbedField{
+			Name: "🗑️ 削除した川柳", Value: fmt.Sprintf("%d 句", deletedSenryus), Inline: true,
+		},
+		&discordgo.MessageEmbedField{
+			Name: "🗑️ 削除したオプトアウト", Value: fmt.Sprintf("%d 件", deletedOptOuts), Inline: true,
+		},
+	)
 
 	embed := &discordgo.MessageEmbed{
 		Title:       "💔 別れの時…",
