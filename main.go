@@ -80,12 +80,13 @@ var (
 	}
 
 	commandHandlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
-		"mute":   handleMuteCommand,
-		"unmute": handleUnmuteCommand,
-		"rank":   handleRankCommand,
-		"delete": commands.HandleDeleteCommand,
-		"detect": commands.HandleDetectCommand,
-		"admin":  commands.HandleAdminCommand,
+		"mute":    handleMuteCommand,
+		"unmute":  handleUnmuteCommand,
+		"rank":    handleRankCommand,
+		"delete":  commands.HandleDeleteCommand,
+		"detect":  commands.HandleDetectCommand,
+		"admin":   commands.HandleAdminCommand,
+		"contact": commands.HandleContactCommand,
 	}
 )
 
@@ -147,6 +148,14 @@ func main() {
 	if err := dg.Open(); err != nil {
 		logger.Error("Failed to open Discord connection", "error", err)
 		os.Exit(1)
+	}
+
+	// Conditionally add /contact command
+	if conf.Admin.ContactChannelID != "" {
+		userCommands = append(userCommands, &discordgo.ApplicationCommand{
+			Name:        "contact",
+			Description: "Bot管理者にお問い合わせを送信します",
+		})
 	}
 
 	// Register user commands (global)
@@ -291,6 +300,18 @@ func interactionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		}
 	case discordgo.InteractionMessageComponent:
 		handleComponentInteraction(s, i)
+	case discordgo.InteractionModalSubmit:
+		handleModalSubmitInteraction(s, i)
+	}
+}
+
+func handleModalSubmitInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	customID := i.ModalSubmitData().CustomID
+	switch {
+	case customID == commands.ContactModalCustomID:
+		commands.HandleContactModalSubmit(s, i)
+	case strings.HasPrefix(customID, commands.ReplyModalPrefix):
+		commands.HandleContactReplyModalSubmit(s, i)
 	}
 }
 
@@ -304,6 +325,8 @@ func handleComponentInteraction(s *discordgo.Session, i *discordgo.InteractionCr
 		commands.HandleDeleteConfirm(s, i)
 	case customID == commands.DeleteCancelCustomID:
 		commands.HandleDeleteCancel(s, i)
+	case strings.HasPrefix(customID, commands.ContactReplyPrefix):
+		commands.HandleContactReplyButton(s, i)
 	}
 }
 
