@@ -31,4 +31,11 @@ RUN mecab --version
 RUN go build -o bot.out main.go
 RUN ls /usr/local
 
+# Expose metrics port
+EXPOSE 9090
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+  CMD curl -f http://localhost:9090/health || exit 1
+
 CMD ["./bot.out"]

@@ -1,4 +1,26 @@
-[Discord]
-Token    = ""
-Playing  = ""
-ClientID = 0
+[discord]
+token = ""
+playing = ""
+
+[database]
+driver = "sqlite3"  # sqlite3 or postgres
+path = "data/senryu.db"
+# dsn = "host=localhost user=findsenryu dbname=findsenryu sslmode=disable"
+
+[log]
+level = "info"  # debug, info, warn, error
+format = "text"  # json, text
+
+[admin]
+owner_ids = []  # Bot admin Discord IDs
+guild_id = ""   # Guild ID for admin commands
+
+[server]
+enabled = true
+port = 9090
+
+[backup]
+enabled = false
+interval_hour = 24
+path = "data/backups"
+max_backups = 7

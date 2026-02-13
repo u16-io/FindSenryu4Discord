@@ -2,6 +2,22 @@ services:
   app:
     build: .
     restart: always
+    ports:
+      - "9090:9090"
     volumes:
-      - "./data:/go/src/github.com/0x307e/FindSenryu4Discord/data"
-      - "./config.toml:/app/config.toml:ro"
+      - "./data:/go/src/github.com/u16-io/FindSenryu4Discord/data"
+      - "./config.toml:/go/src/github.com/u16-io/FindSenryu4Discord/config.toml:ro"
+    environment:
+      # Override config via environment variables
+      # FINDSENRYU_LOG_LEVEL: debug
+      # FINDSENRYU_LOG_FORMAT: json
+      # FINDSENRYU_DATABASE_DRIVER: postgres
+      # FINDSENRYU_DATABASE_DSN: "host=db user=findsenryu dbname=findsenryu sslmode=disable"
+      TZ: Asia/Tokyo
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9090/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    stop_grace_period: 30s

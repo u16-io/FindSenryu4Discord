@@ -1,25 +1,33 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/u16-io/FindSenryu4Discord/commands"
+	"github.com/u16-io/FindSenryu4Discord/config"
 	"github.com/u16-io/FindSenryu4Discord/db"
 	"github.com/u16-io/FindSenryu4Discord/model"
+	"github.com/u16-io/FindSenryu4Discord/pkg/backup"
+	"github.com/u16-io/FindSenryu4Discord/pkg/health"
+	"github.com/u16-io/FindSenryu4Discord/pkg/logger"
+	"github.com/u16-io/FindSenryu4Discord/pkg/metrics"
+	"github.com/u16-io/FindSenryu4Discord/pkg/permissions"
 	"github.com/u16-io/FindSenryu4Discord/service"
 
-	"github.com/u16-io/FindSenryu4Discord/config"
 	"github.com/0x307e/go-haiku"
 	"github.com/bwmarrin/discordgo"
 )
 
 var (
-	commands = []*discordgo.ApplicationCommand{
+	startTime time.Time
+
+	userCommands = []*discordgo.ApplicationCommand{
 		{
 			Name:        "mute",
 			Description: "このチャンネルでの川柳検出をミュートします",
@@ -38,67 +46,187 @@ var (
 		"mute":   handleMuteCommand,
 		"unmute": handleUnmuteCommand,
 		"rank":   handleRankCommand,
+		"admin":  commands.HandleAdminCommand,
 	}
 )
 
 func main() {
-	var (
-		err error
+	startTime = time.Now()
+
+	// Load configuration
+	conf, err := config.Load("config.toml")
+	if err != nil {
+		fmt.Printf("Failed to load config: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Initialize logger
+	logger.Init(logger.Config{
+		Level:  conf.Log.Level,
+		Format: conf.Log.Format,
+	})
+
+	logger.Info("Starting FindSenryu4Discord",
+		"log_level", conf.Log.Level,
+		"db_driver", conf.Database.Driver,
 	)
 
-	log.SetFlags(log.Lshortfile)
-	conf := config.GetConf()
+	// Initialize database
+	if err := db.Init(); err != nil {
+		logger.Error("Failed to initialize database", "error", err)
+		os.Exit(1)
+	}
+
+	// Start health check server
+	healthServer, err := health.StartServer()
+	if err != nil {
+		logger.Error("Failed to start health server", "error", err)
+	}
+
+	// Initialize backup manager
+	var backupManager *backup.Manager
+	if conf.Database.Driver == "sqlite3" && conf.Backup.Enabled {
+		backupManager = backup.NewManager(conf.Backup, conf.Database.Path)
+		backupManager.Start()
+		commands.SetBackupManager(backupManager)
+	}
+	commands.SetStartTime(startTime)
+
+	// Create Discord session
 	dg, err := discordgo.New("Bot " + conf.Discord.Token)
 	if err != nil {
-		log.Fatal("error creating Discord session")
+		logger.Error("Failed to create Discord session", "error", err)
+		os.Exit(1)
 	}
+
+	// Add handlers
 	dg.AddHandler(messageCreate)
 	dg.AddHandler(interactionCreate)
-	err = dg.Open()
-	if err != nil {
-		fmt.Println(err)
-		log.Fatal("error opening connection")
+	dg.AddHandler(guildCreate)
+
+	// Open connection
+	if err := dg.Open(); err != nil {
+		logger.Error("Failed to open Discord connection", "error", err)
+		os.Exit(1)
 	}
 
-	db.Init()
-
-	// Register slash commands
-	log.Println("Registering slash commands...")
-	registeredCommands := make([]*discordgo.ApplicationCommand, len(commands))
-	for i, cmd := range commands {
+	// Register user commands (global)
+	logger.Info("Registering user slash commands...")
+	registeredUserCommands := make([]*discordgo.ApplicationCommand, len(userCommands))
+	for i, cmd := range userCommands {
 		rcmd, err := dg.ApplicationCommandCreate(dg.State.User.ID, "", cmd)
 		if err != nil {
-			log.Printf("Cannot create '%v' command: %v", cmd.Name, err)
+			logger.Error("Failed to register command", "command", cmd.Name, "error", err)
 		} else {
-			registeredCommands[i] = rcmd
-			log.Printf("Registered command: %s", cmd.Name)
+			registeredUserCommands[i] = rcmd
+			logger.Info("Registered command", "command", cmd.Name)
 		}
 	}
 
-	dg.UpdateGameStatus(1, conf.Discord.Playing)
-	fmt.Println("[Servers]")
-	for _, guild := range dg.State.Guilds {
-		fmt.Println(guild.Name)
-	}
-	fmt.Println("")
-
-	fmt.Println("Bot is now running.  Press CTRL-C to exit.")
-	sc := make(chan os.Signal, 1)
-	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt, os.Kill)
-	<-sc
-
-	// Cleanup registered commands
-	log.Println("Removing slash commands...")
-	for _, cmd := range registeredCommands {
-		if cmd != nil {
-			err := dg.ApplicationCommandDelete(dg.State.User.ID, "", cmd.ID)
+	// Register admin commands (guild-specific)
+	adminGuildID := permissions.GetAdminGuildID()
+	var registeredAdminCommands []*discordgo.ApplicationCommand
+	if adminGuildID != "" {
+		logger.Info("Registering admin slash commands...", "guild_id", adminGuildID)
+		for _, cmd := range commands.AdminCommands() {
+			rcmd, err := dg.ApplicationCommandCreate(dg.State.User.ID, adminGuildID, cmd)
 			if err != nil {
-				log.Printf("Cannot delete '%v' command: %v", cmd.Name, err)
+				logger.Error("Failed to register admin command", "command", cmd.Name, "error", err)
+			} else {
+				registeredAdminCommands = append(registeredAdminCommands, rcmd)
+				logger.Info("Registered admin command", "command", cmd.Name, "guild_id", adminGuildID)
 			}
 		}
 	}
 
-	dg.Close()
+	// Update game status
+	dg.UpdateGameStatus(1, conf.Discord.Playing)
+
+	// Log connected guilds
+	logger.Info("Connected guilds", "count", len(dg.State.Guilds))
+	metrics.SetConnectedGuilds(len(dg.State.Guilds))
+	for _, guild := range dg.State.Guilds {
+		logger.Debug("Connected to guild", "name", guild.Name, "id", guild.ID)
+	}
+
+	// Update database stats in metrics
+	dbStats := db.GetStats()
+	metrics.SetDatabaseStats(dbStats.SenryuCount, dbStats.MutedChannelCount)
+
+	// Mark as ready
+	if healthServer != nil {
+		healthServer.SetReady(true)
+	}
+
+	logger.Info("Bot is now running. Press CTRL-C to exit.")
+
+	// Wait for termination signal
+	sc := make(chan os.Signal, 1)
+	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
+	<-sc
+
+	// Graceful shutdown
+	logger.Info("Shutting down...")
+
+	// Mark as not ready
+	if healthServer != nil {
+		healthServer.SetReady(false)
+	}
+
+	// Create shutdown context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Stop backup manager
+	if backupManager != nil {
+		backupManager.Stop(ctx)
+	}
+
+	// Stop health server
+	if healthServer != nil {
+		if err := healthServer.Stop(ctx); err != nil {
+			logger.Error("Failed to stop health server", "error", err)
+		}
+	}
+
+	// Remove slash commands
+	logger.Info("Removing user slash commands...")
+	for _, cmd := range registeredUserCommands {
+		if cmd != nil {
+			if err := dg.ApplicationCommandDelete(dg.State.User.ID, "", cmd.ID); err != nil {
+				logger.Error("Failed to delete command", "command", cmd.Name, "error", err)
+			}
+		}
+	}
+
+	// Remove admin commands
+	if adminGuildID != "" {
+		logger.Info("Removing admin slash commands...")
+		for _, cmd := range registeredAdminCommands {
+			if cmd != nil {
+				if err := dg.ApplicationCommandDelete(dg.State.User.ID, adminGuildID, cmd.ID); err != nil {
+					logger.Error("Failed to delete admin command", "command", cmd.Name, "error", err)
+				}
+			}
+		}
+	}
+
+	// Close Discord connection
+	if err := dg.Close(); err != nil {
+		logger.Error("Failed to close Discord connection", "error", err)
+	}
+
+	// Close database
+	if err := db.Close(); err != nil {
+		logger.Error("Failed to close database", "error", err)
+	}
+
+	logger.Info("Shutdown complete")
+}
+
+func guildCreate(s *discordgo.Session, g *discordgo.GuildCreate) {
+	logger.Info("Joined guild", "name", g.Name, "id", g.ID)
+	metrics.SetConnectedGuilds(len(s.State.Guilds))
 }
 
 func interactionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -112,23 +240,24 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
+	metrics.RecordMessageProcessed()
+
 	ch, err := s.Channel(m.ChannelID)
 	if err != nil {
-		fmt.Println(err)
+		logger.Warn("Failed to get channel", "error", err, "channel_id", m.ChannelID)
+		metrics.RecordError("discord_api")
 		return
 	}
 
-	// チャンネル種別ごとの振る舞い
+	// Channel type behavior
 	switch ch.Type {
 	case discordgo.ChannelTypeDM, discordgo.ChannelTypeGroupDM:
-		// 個チャ・グループDMでは注意を出して終了
 		s.ChannelMessageSend(m.ChannelID, "個チャはダメです")
 		return
 	case discordgo.ChannelTypeGuildVoice, discordgo.ChannelTypeGuildStageVoice:
-		// VC内のテキストチャンネルでは反応しない
 		return
 	}
-	// それ以外（通常のテキストチャンネルなど）のみ処理継続
+
 	if ch.Type != discordgo.ChannelTypeGuildText {
 		return
 	}
@@ -142,7 +271,7 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			h := haiku.Find(m.Content, []int{5, 7, 5})
 			if len(h) != 0 {
 				senryu := strings.Split(h[0], " ")
-				service.CreateSenryu(
+				_, err := service.CreateSenryu(
 					model.Senryu{
 						ServerID:  m.GuildID,
 						AuthorID:  m.Author.ID,
@@ -151,11 +280,17 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 						Simogo:    senryu[2],
 					},
 				)
-				s.ChannelMessageSendReply(
+				if err != nil {
+					logger.Error("Failed to create senryu", "error", err)
+					metrics.RecordError("database")
+				}
+				if _, err := s.ChannelMessageSendReply(
 					m.ChannelID,
 					fmt.Sprintf("川柳を検出しました！\n「%s」", h[0]),
 					m.Reference(),
-				)
+				); err != nil {
+					logger.Warn("Failed to send senryu reply", "error", err, "channel_id", m.ChannelID)
+				}
 			}
 		}
 	}
@@ -164,7 +299,10 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 var medals = []string{"🥇", "🥈", "🥉", "🎖️", "🎖️"}
 
 func handleMuteCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	metrics.RecordCommandExecuted("mute")
+
 	if err := service.ToMute(i.ChannelID); err != nil {
+		logger.Error("Failed to mute channel", "error", err, "channel_id", i.ChannelID)
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
@@ -183,7 +321,10 @@ func handleMuteCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 }
 
 func handleUnmuteCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	metrics.RecordCommandExecuted("unmute")
+
 	if err := service.ToUnMute(i.ChannelID); err != nil {
+		logger.Error("Failed to unmute channel", "error", err, "channel_id", i.ChannelID)
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
@@ -202,13 +343,11 @@ func handleUnmuteCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 }
 
 func handleRankCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	var (
-		ranks  []service.RankResult
-		errArr []error
-	)
+	metrics.RecordCommandExecuted("rank")
 
-	if ranks, errArr = service.GetRanking(i.GuildID); len(errArr) != 0 {
-		fmt.Println(errArr)
+	ranks, err := service.GetRanking(i.GuildID)
+	if err != nil {
+		logger.Error("Failed to get ranking", "error", err, "guild_id", i.GuildID)
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
@@ -258,35 +397,42 @@ func handleRankCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 }
 
 func handleYomeYomuna(m *discordgo.MessageCreate, s *discordgo.Session) bool {
-	var errArr []error
 	switch m.Content {
 	case "詠め":
-		var senryus []model.Senryu
-		if senryus, errArr = service.GetThreeRandomSenryus(m.GuildID); len(errArr) != 0 {
+		senryus, err := service.GetThreeRandomSenryus(m.GuildID)
+		if err != nil {
+			logger.Error("Failed to get random senryus", "error", err)
 			s.MessageReactionAdd(m.ChannelID, m.ID, "❌")
 			return true
 		}
 		if len(senryus) == 0 {
-			s.ChannelMessageSend(m.ChannelID, "まだ誰も詠んでいません。あなたが先に詠んでください。")
+			if _, err := s.ChannelMessageSend(m.ChannelID, "まだ誰も詠んでいません。あなたが先に詠んでください。"); err != nil {
+				logger.Warn("Failed to send message", "error", err, "channel_id", m.ChannelID)
+			}
 		} else {
-			s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("ここで一句\n「%s」\n詠み手: %s",
+			if _, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("ここで一句\n「%s」\n詠み手: %s",
 				strings.Join([]string{
 					senryus[0].Kamigo,
 					senryus[1].Nakasichi,
 					senryus[2].Simogo,
-				}, " "), strings.Join(getWriters(senryus, m.GuildID, s), ", ")))
+				}, " "), strings.Join(getWriters(senryus, m.GuildID, s), ", "))); err != nil {
+				logger.Warn("Failed to send senryu message", "error", err, "channel_id", m.ChannelID)
+			}
 		}
 		return true
 	case "詠むな":
-		var senryu string
-		if senryu, errArr = service.GetLastSenryu(m.GuildID, m.Author.ID); len(errArr) != 0 {
+		senryu, err := service.GetLastSenryu(m.GuildID, m.Author.ID)
+		if err != nil {
+			logger.Error("Failed to get last senryu", "error", err)
 			s.MessageReactionAdd(m.ChannelID, m.ID, "❌")
 		} else {
-			s.ChannelMessageSendReply(
+			if _, err := s.ChannelMessageSendReply(
 				m.ChannelID,
 				senryu,
 				m.Reference(),
-			)
+			); err != nil {
+				logger.Warn("Failed to send reply", "error", err, "channel_id", m.ChannelID)
+			}
 		}
 		return true
 	}
