@@ -1,4 +1,4 @@
-package intelligence
+package adminnotify
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	"github.com/u16-io/FindSenryu4Discord/service"
 )
 
-// Manager handles admin intelligence notifications (guild join, daily summary).
+// Manager handles admin notifications (guild join/leave, daily summary).
 type Manager struct {
 	session        *discordgo.Session
 	logChannelID   string
@@ -19,7 +19,7 @@ type Manager struct {
 	stoppedCh      chan struct{}
 }
 
-// NewManager creates a new intelligence manager.
+// NewManager creates a new admin notification manager.
 // It captures the current guild count as the baseline for daily diff.
 func NewManager(session *discordgo.Session, logChannelID string) *Manager {
 	return &Manager{
@@ -35,11 +35,11 @@ func NewManager(session *discordgo.Session, logChannelID string) *Manager {
 // If logChannelID is empty, it does nothing.
 func (m *Manager) Start() {
 	if m.logChannelID == "" {
-		logger.Info("Intelligence manager disabled (log_channel_id is empty)")
+		logger.Info("Admin notification manager disabled (log_channel_id is empty)")
 		return
 	}
 
-	logger.Info("Starting intelligence manager", "log_channel_id", m.logChannelID)
+	logger.Info("Starting admin notification manager", "log_channel_id", m.logChannelID)
 	go m.run()
 }
 
@@ -52,9 +52,9 @@ func (m *Manager) Stop(ctx context.Context) {
 	close(m.stopCh)
 	select {
 	case <-m.stoppedCh:
-		logger.Info("Intelligence manager stopped")
+		logger.Info("Admin notification manager stopped")
 	case <-ctx.Done():
-		logger.Warn("Intelligence manager stop timeout")
+		logger.Warn("Admin notification manager stop timeout")
 	}
 }
 
@@ -122,7 +122,7 @@ func (m *Manager) run() {
 
 	for {
 		d := durationUntilNextMidnightJST()
-		logger.Debug("Intelligence: next daily summary in", "duration", d)
+		logger.Debug("Next daily summary in", "duration", d)
 
 		timer := time.NewTimer(d)
 		select {
