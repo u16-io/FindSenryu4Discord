@@ -58,12 +58,7 @@ func AdminCommands() []*discordgo.ApplicationCommand {
 // HandleAdminCommand handles admin slash commands
 func HandleAdminCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Check if user is an owner
-	userID := ""
-	if i.Member != nil {
-		userID = i.Member.User.ID
-	} else if i.User != nil {
-		userID = i.User.ID
-	}
+	userID := getUserID(i)
 
 	if !permissions.CheckOwnerPermission(userID, "admin_command") {
 		respondError(s, i, "このコマンドはBot管理者のみ使用できます")
@@ -241,6 +236,23 @@ func handleBackupCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 		Embeds: &[]*discordgo.MessageEmbed{embed},
 	})
+}
+
+func getUserID(i *discordgo.InteractionCreate) string {
+	if i.Member != nil {
+		return i.Member.User.ID
+	}
+	if i.User != nil {
+		return i.User.ID
+	}
+	return ""
+}
+
+func isServerAdmin(i *discordgo.InteractionCreate) bool {
+	if i.Member == nil {
+		return false
+	}
+	return i.Member.Permissions&discordgo.PermissionAdministrator != 0
 }
 
 func respondError(s *discordgo.Session, i *discordgo.InteractionCreate, message string) {

@@ -40,12 +40,25 @@ var (
 			Name:        "rank",
 			Description: "ギルド内で詠んだ回数が多い人のランキングを表示します",
 		},
+		{
+			Name:        "delete",
+			Description: "自分の川柳を削除します",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionUser,
+					Name:        "user",
+					Description: "削除対象のユーザー（管理者のみ）",
+					Required:    false,
+				},
+			},
+		},
 	}
 
 	commandHandlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
 		"mute":   handleMuteCommand,
 		"unmute": handleUnmuteCommand,
 		"rank":   handleRankCommand,
+		"delete": commands.HandleDeleteCommand,
 		"admin":  commands.HandleAdminCommand,
 	}
 )
@@ -230,8 +243,26 @@ func guildCreate(s *discordgo.Session, g *discordgo.GuildCreate) {
 }
 
 func interactionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	if h, ok := commandHandlers[i.ApplicationCommandData().Name]; ok {
-		h(s, i)
+	switch i.Type {
+	case discordgo.InteractionApplicationCommand:
+		if h, ok := commandHandlers[i.ApplicationCommandData().Name]; ok {
+			h(s, i)
+		}
+	case discordgo.InteractionMessageComponent:
+		handleComponentInteraction(s, i)
+	}
+}
+
+func handleComponentInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	customID := i.MessageComponentData().CustomID
+
+	switch {
+	case customID == commands.DeleteSelectCustomID:
+		commands.HandleDeleteSelectMenu(s, i)
+	case strings.HasPrefix(customID, commands.DeleteConfirmPrefix):
+		commands.HandleDeleteConfirm(s, i)
+	case customID == commands.DeleteCancelCustomID:
+		commands.HandleDeleteCancel(s, i)
 	}
 }
 
