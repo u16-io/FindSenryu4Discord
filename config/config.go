@@ -49,8 +49,10 @@ type LogConfig struct {
 
 // AdminConfig holds admin-related configuration
 type AdminConfig struct {
-	OwnerIDs []string `koanf:"owner_ids"` // Bot admin Discord IDs
-	GuildID  string   `koanf:"guild_id"`  // Guild ID for admin commands
+	OwnerIDs         []string `koanf:"owner_ids"`         // Bot admin Discord IDs
+	GuildID          string   `koanf:"guild_id"`          // Guild ID for admin commands
+	LogChannelID     string   `koanf:"log_channel_id"`    // Log notification channel (join notifications, daily summary)
+	ContactChannelID string   `koanf:"contact_channel_id"` // Contact notification channel (future use)
 }
 
 // ServerConfig holds HTTP server configuration

@@ -2,6 +2,7 @@ package service
 
 import (
 	"math/rand"
+	"time"
 
 	"github.com/cockroachdb/errors"
 	"github.com/jinzhu/gorm"
@@ -198,6 +199,26 @@ func DeleteSenryu(id int, serverID string) error {
 		"server_id", serverID,
 	)
 	return nil
+}
+
+// CountSenryuByDateRange returns the count of senryus created within the given time range [from, to)
+func CountSenryuByDateRange(from, to time.Time) (int64, error) {
+	metrics.RecordDatabaseOperation("count_senryu_by_date_range")
+
+	var count int64
+	if err := db.DB.Model(&model.Senryu{}).
+		Where("created_at >= ? AND created_at < ?", from, to).
+		Count(&count).Error; err != nil {
+		metrics.RecordError("database")
+		logger.Warn("Failed to count senryus by date range",
+			"error", err,
+			"from", from,
+			"to", to,
+		)
+		return 0, errors.Wrap(err, "failed to count senryus by date range")
+	}
+
+	return count, nil
 }
 
 // GetServerStats returns statistics for a server

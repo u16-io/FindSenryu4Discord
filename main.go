@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/u16-io/FindSenryu4Discord/model"
 	"github.com/u16-io/FindSenryu4Discord/pkg/backup"
 	"github.com/u16-io/FindSenryu4Discord/pkg/health"
+	"github.com/u16-io/FindSenryu4Discord/pkg/intelligence"
 	"github.com/u16-io/FindSenryu4Discord/pkg/logger"
 	"github.com/u16-io/FindSenryu4Discord/pkg/metrics"
 	"github.com/u16-io/FindSenryu4Discord/pkg/permissions"
@@ -25,7 +27,9 @@ import (
 )
 
 var (
-	startTime time.Time
+	startTime           time.Time
+	intelligenceManager *intelligence.Manager
+	botReady            atomic.Bool
 
 	userCommands = []*discordgo.ApplicationCommand{
 		{
@@ -188,6 +192,13 @@ func main() {
 	dbStats := db.GetStats()
 	metrics.SetDatabaseStats(dbStats.SenryuCount, dbStats.MutedChannelCount)
 
+	// Initialize intelligence manager
+	if conf.Admin.LogChannelID != "" {
+		intelligenceManager = intelligence.NewManager(dg, conf.Admin.LogChannelID)
+		intelligenceManager.Start()
+	}
+	botReady.Store(true)
+
 	// Mark as ready
 	if healthServer != nil {
 		healthServer.SetReady(true)
@@ -211,6 +222,11 @@ func main() {
 	// Create shutdown context with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+
+	// Stop intelligence manager
+	if intelligenceManager != nil {
+		intelligenceManager.Stop(ctx)
+	}
 
 	// Stop backup manager
 	if backupManager != nil {
@@ -262,6 +278,9 @@ func main() {
 func guildCreate(s *discordgo.Session, g *discordgo.GuildCreate) {
 	logger.Info("Joined guild", "name", g.Name, "id", g.ID)
 	metrics.SetConnectedGuilds(len(s.State.Guilds))
+	if botReady.Load() && intelligenceManager != nil {
+		intelligenceManager.NotifyGuildJoin(g.Guild)
+	}
 }
 
 func interactionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
