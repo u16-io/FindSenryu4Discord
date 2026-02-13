@@ -113,7 +113,7 @@ func (m *Manager) NotifyGuildLeave(guild *discordgo.GuildDelete, deletedSenryus,
 
 	embed := &discordgo.MessageEmbed{
 		Title:       "💔 別れの時…",
-		Description: "サーバーから追い出されてしまいました…。でも、詠んだ句は永遠に残る。",
+		Description: "サーバーから追い出されてしまいました…。すべての句は涙とともに消えていく。",
 		Color:       0xED4245,
 		Timestamp:   time.Now().Format(time.RFC3339),
 		Fields:      fields,
