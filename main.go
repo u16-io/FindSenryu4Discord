@@ -52,6 +52,27 @@ var (
 				},
 			},
 		},
+		{
+			Name:        "detect",
+			Description: "自分の川柳検出のオン/オフを切り替えます",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        "on",
+					Description: "川柳検出を有効にします",
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        "off",
+					Description: "川柳検出を無効にします",
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        "status",
+					Description: "現在の川柳検出設定を表示します",
+				},
+			},
+		},
 	}
 
 	commandHandlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
@@ -59,6 +80,7 @@ var (
 		"unmute": handleUnmuteCommand,
 		"rank":   handleRankCommand,
 		"delete": commands.HandleDeleteCommand,
+		"detect": commands.HandleDetectCommand,
 		"admin":  commands.HandleAdminCommand,
 	}
 )
@@ -293,12 +315,20 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
+	// Skip senryu features in admin guild
+	if m.GuildID == permissions.GetAdminGuildID() {
+		return
+	}
+
 	if handleYomeYomuna(m, s) {
 		return
 	}
 
 	if !service.IsMute(m.ChannelID) {
 		if m.Author.ID != s.State.User.ID {
+			if service.IsDetectionOptedOut(m.GuildID, m.Author.ID) {
+				return
+			}
 			h := haiku.Find(m.Content, []int{5, 7, 5})
 			if len(h) != 0 {
 				senryu := strings.Split(h[0], " ")

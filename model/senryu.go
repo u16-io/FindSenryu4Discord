@@ -14,3 +14,9 @@ type Senryu struct {
 type MutedChannel struct {
 	ChannelID string `gorm:"primaryKey"`
 }
+
+// DetectionOptOut is struct of per-user detection opt-out.
+type DetectionOptOut struct {
+	ServerID string `gorm:"primaryKey"`
+	UserID   string `gorm:"primaryKey"`
+}

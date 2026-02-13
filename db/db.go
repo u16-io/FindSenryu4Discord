@@ -81,7 +81,7 @@ func initDB() error {
 	}
 
 	// Auto migrate
-	if err := DB.AutoMigrate(&model.Senryu{}, &model.MutedChannel{}).Error; err != nil {
+	if err := DB.AutoMigrate(&model.Senryu{}, &model.MutedChannel{}, &model.DetectionOptOut{}).Error; err != nil {
 		logger.Error("Failed to migrate database", "error", err)
 		return err
 	}
