@@ -65,16 +65,17 @@ func (m *Manager) NotifyGuildJoin(guild *discordgo.Guild) {
 	}
 
 	embed := &discordgo.MessageEmbed{
-		Title:     "サーバー参加",
-		Color:     0x57F287,
-		Timestamp: time.Now().Format(time.RFC3339),
+		Title:       "🎉 新たな出会い！",
+		Description: "新しいサーバーに招待されました！川柳の輪が広がっていく…！",
+		Color:       0x57F287,
+		Timestamp:   time.Now().Format(time.RFC3339),
 		Thumbnail: &discordgo.MessageEmbedThumbnail{
 			URL: guild.IconURL(""),
 		},
 		Fields: []*discordgo.MessageEmbedField{
-			{Name: "サーバー名", Value: guild.Name, Inline: true},
-			{Name: "サーバーID", Value: guild.ID, Inline: true},
-			{Name: "メンバー数", Value: fmt.Sprintf("%d", guild.MemberCount), Inline: true},
+			{Name: "🏠 サーバー名", Value: guild.Name, Inline: true},
+			{Name: "🆔 サーバーID", Value: guild.ID, Inline: true},
+			{Name: "👥 メンバー数", Value: fmt.Sprintf("%d 人", guild.MemberCount), Inline: true},
 		},
 	}
 
@@ -94,19 +95,20 @@ func (m *Manager) NotifyGuildLeave(guild *discordgo.GuildDelete) {
 	}
 
 	fields := []*discordgo.MessageEmbedField{
-		{Name: "サーバーID", Value: guild.ID, Inline: true},
+		{Name: "🆔 サーバーID", Value: guild.ID, Inline: true},
 	}
 	if guild.Name != "" {
 		fields = append(fields, &discordgo.MessageEmbedField{
-			Name: "サーバー名", Value: guild.Name, Inline: true,
+			Name: "🏠 サーバー名", Value: guild.Name, Inline: true,
 		})
 	}
 
 	embed := &discordgo.MessageEmbed{
-		Title:     "サーバー脱退",
-		Color:     0xED4245,
-		Timestamp: time.Now().Format(time.RFC3339),
-		Fields:    fields,
+		Title:       "💔 別れの時…",
+		Description: "サーバーから追い出されてしまいました…。でも、詠んだ句は永遠に残る。",
+		Color:       0xED4245,
+		Timestamp:   time.Now().Format(time.RFC3339),
+		Fields:      fields,
 	}
 
 	if _, err := m.session.ChannelMessageSendEmbed(m.logChannelID, embed); err != nil {
@@ -160,19 +162,33 @@ func (m *Manager) sendDailySummary() {
 
 	var countStr string
 	if count < 0 {
-		countStr = "取得失敗"
+		countStr = "💀 取得失敗"
 	} else {
 		countStr = fmt.Sprintf("%d 句", count)
 	}
 
-	msg := fmt.Sprintf("**[日次サマリー]** %s\n- 前日の川柳数: %s\n- 接続サーバー数: %d (%s)",
-		from.Format("2006/01/02"),
-		countStr,
-		currentGuilds,
-		diffStr,
-	)
+	var guildEmoji string
+	switch {
+	case guildDiff > 0:
+		guildEmoji = "📈"
+	case guildDiff < 0:
+		guildEmoji = "📉"
+	default:
+		guildEmoji = "➡️"
+	}
 
-	if _, err := m.session.ChannelMessageSend(m.logChannelID, msg); err != nil {
+	embed := &discordgo.MessageEmbed{
+		Title:       "📊 デイリーレポート",
+		Description: fmt.Sprintf("**%s** の一日をお届けします！", from.Format("2006/01/02")),
+		Color:       0x5865F2,
+		Timestamp:   time.Now().Format(time.RFC3339),
+		Fields: []*discordgo.MessageEmbedField{
+			{Name: "✍️ 前日の川柳数", Value: countStr, Inline: true},
+			{Name: fmt.Sprintf("%s 接続サーバー数", guildEmoji), Value: fmt.Sprintf("%d (%s)", currentGuilds, diffStr), Inline: true},
+		},
+	}
+
+	if _, err := m.session.ChannelMessageSendEmbed(m.logChannelID, embed); err != nil {
 		logger.Error("Failed to send daily summary", "error", err)
 	}
 }
