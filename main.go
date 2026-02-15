@@ -481,6 +481,11 @@ func handleRankCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		return
 	}
 
+	guild, err := s.Guild(i.GuildID)
+	if err != nil {
+		logger.Warn("Failed to get guild for rank embed", "error", err, "guild_id", i.GuildID)
+	}
+
 	embed := discordgo.MessageEmbed{
 		Type:      discordgo.EmbedTypeRich,
 		Title:     "サーバー内ランキング",
@@ -489,24 +494,29 @@ func handleRankCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			Text:    "This bot was made by 0x307e.",
 			IconURL: "https://github.com/0x307e.png",
 		},
-		Thumbnail: &discordgo.MessageEmbedThumbnail{
-			URL: s.State.User.AvatarURL(""),
-		},
-		Author: &discordgo.MessageEmbedAuthor{
-			Name:    i.Member.User.Username,
-			IconURL: i.Member.User.AvatarURL(""),
-		},
 		Fields: []*discordgo.MessageEmbedField{},
+	}
+	if guild != nil {
+		embed.Thumbnail = &discordgo.MessageEmbedThumbnail{
+			URL: guild.IconURL(""),
+		}
 	}
 
 	for _, rank := range ranks {
-		user, err := s.User(rank.AuthorId)
+		member, err := s.GuildMember(i.GuildID, rank.AuthorId)
 		if err != nil {
 			continue
 		}
+		displayName := member.Nick
+		if displayName == "" {
+			displayName = member.User.GlobalName
+		}
+		if displayName == "" {
+			displayName = member.User.Username
+		}
 		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 			Name:   fmt.Sprintf("%s 第%d位: %d回", medals[rank.Rank-1], rank.Rank, rank.Count),
-			Value:  user.Username,
+			Value:  displayName,
 			Inline: true,
 		})
 	}
