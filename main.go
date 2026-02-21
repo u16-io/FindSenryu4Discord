@@ -421,6 +421,7 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 func isSenryuTargetChannel(ct discordgo.ChannelType) bool {
 	switch ct {
 	case discordgo.ChannelTypeGuildText,
+		discordgo.ChannelTypeGuildNews,
 		discordgo.ChannelTypeGuildVoice,
 		discordgo.ChannelTypeGuildNewsThread,
 		discordgo.ChannelTypeGuildPublicThread,
