@@ -18,108 +18,99 @@ func setupTestDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open test database: %v", err)
 	}
-	db.DB.AutoMigrate(&model.MutedChannel{})
+	if err := db.DB.AutoMigrate(&model.MutedChannel{}, &model.GuildChannelTypeSetting{}).Error; err != nil {
+		t.Fatalf("failed to migrate test database: %v", err)
+	}
 	t.Cleanup(func() {
 		db.DB.Close()
 	})
 }
 
-func TestIsSenryuTargetChannel_検出対象のチャンネルタイプでtrueを返す(t *testing.T) {
-	targetTypes := []struct {
-		name        string
-		channelType discordgo.ChannelType
-	}{
-		{"テキストチャンネル", discordgo.ChannelTypeGuildText},
-		{"ボイスチャンネル", discordgo.ChannelTypeGuildVoice},
-		{"ステージチャンネル", discordgo.ChannelTypeGuildStageVoice},
-		{"ニューススレッド", discordgo.ChannelTypeGuildNewsThread},
-		{"公開スレッド", discordgo.ChannelTypeGuildPublicThread},
-		{"プライベートスレッド", discordgo.ChannelTypeGuildPrivateThread},
+func TestIsChannelTypeEnabled_デフォルト有効タイプ(t *testing.T) {
+	setupTestDB(t)
+
+	enabledTypes := []discordgo.ChannelType{
+		discordgo.ChannelTypeGuildText,
+		discordgo.ChannelTypeGuildVoice,
+		discordgo.ChannelTypeGuildStageVoice,
+		discordgo.ChannelTypeGuildNewsThread,
+		discordgo.ChannelTypeGuildPublicThread,
+		discordgo.ChannelTypeGuildPrivateThread,
 	}
 
-	for _, tt := range targetTypes {
-		t.Run(tt.name, func(t *testing.T) {
-			if !isSenryuTargetChannel(tt.channelType) {
-				t.Errorf("%s (type=%d) は検出対象であるべき", tt.name, tt.channelType)
-			}
-		})
+	for _, ct := range enabledTypes {
+		if !service.IsChannelTypeEnabled("test-guild", ct) {
+			t.Errorf("channel type %d should be enabled by default", ct)
+		}
 	}
 }
 
-func TestIsSenryuTargetChannel_検出対象外のチャンネルタイプでfalseを返す(t *testing.T) {
-	nonTargetTypes := []struct {
-		name        string
-		channelType discordgo.ChannelType
-	}{
-		{"DM", discordgo.ChannelTypeDM},
-		{"グループDM", discordgo.ChannelTypeGroupDM},
-		{"カテゴリ", discordgo.ChannelTypeGuildCategory},
-		{"アナウンスチャンネル", discordgo.ChannelTypeGuildNews},
-		{"ストアチャンネル", discordgo.ChannelTypeGuildStore},
-		{"ディレクトリ", discordgo.ChannelTypeGuildDirectory},
-		{"フォーラムチャンネル", discordgo.ChannelTypeGuildForum},
-		{"メディアチャンネル", discordgo.ChannelTypeGuildMedia},
+func TestIsChannelTypeEnabled_デフォルト無効タイプ(t *testing.T) {
+	setupTestDB(t)
+
+	disabledTypes := []discordgo.ChannelType{
+		discordgo.ChannelTypeGuildNews,
+		discordgo.ChannelTypeGuildForum,
 	}
 
-	for _, tt := range nonTargetTypes {
-		t.Run(tt.name, func(t *testing.T) {
-			if isSenryuTargetChannel(tt.channelType) {
-				t.Errorf("%s (type=%d) は検出対象外であるべき", tt.name, tt.channelType)
-			}
-		})
+	for _, ct := range disabledTypes {
+		if service.IsChannelTypeEnabled("test-guild", ct) {
+			t.Errorf("channel type %d should be disabled by default", ct)
+		}
 	}
 }
 
-func TestIsSenryuTargetChannel_未知のチャンネルタイプでfalseを返す(t *testing.T) {
-	unknownType := discordgo.ChannelType(999)
-	if isSenryuTargetChannel(unknownType) {
-		t.Error("未知のチャンネルタイプは検出対象外であるべき")
+func TestIsChannelTypeEnabled_未知のタイプは無効(t *testing.T) {
+	setupTestDB(t)
+
+	if service.IsChannelTypeEnabled("test-guild", discordgo.ChannelType(999)) {
+		t.Error("unknown channel type should be disabled")
 	}
 }
 
-func TestIsParentChannelMuted_ParentIDが空の場合はfalseを返す(t *testing.T) {
+func TestIsParentChannelMuted_親チャンネルがミュート(t *testing.T) {
+	setupTestDB(t)
+
+	if err := service.ToMute("parent-channel", "test-guild"); err != nil {
+		t.Fatalf("failed to mute parent channel: %v", err)
+	}
+
+	ch := &discordgo.Channel{ParentID: "parent-channel"}
+	if !isParentChannelMuted(ch) {
+		t.Error("should detect parent channel as muted")
+	}
+}
+
+func TestIsParentChannelMuted_親チャンネルがミュートされていない(t *testing.T) {
+	setupTestDB(t)
+
+	ch := &discordgo.Channel{ParentID: "unmuted-parent"}
+	if isParentChannelMuted(ch) {
+		t.Error("should not detect unmuted parent channel as muted")
+	}
+}
+
+func TestIsParentChannelMuted_親チャンネルなし(t *testing.T) {
+	setupTestDB(t)
+
 	ch := &discordgo.Channel{ParentID: ""}
 	if isParentChannelMuted(ch) {
-		t.Error("ParentIDが空のチャンネルはミュート判定されるべきではない")
+		t.Error("channel with no parent should not be considered muted")
 	}
 }
 
-func TestIsParentChannelMuted_親チャンネルがミュートされていない場合はfalseを返す(t *testing.T) {
+func TestIsParentChannelMuted_自チャンネルのミュートは親に影響しない(t *testing.T) {
 	setupTestDB(t)
 
-	ch := &discordgo.Channel{ParentID: "not-muted-parent"}
+	if err := service.ToMute("thread-channel", "test-guild"); err != nil {
+		t.Fatalf("failed to mute thread channel: %v", err)
+	}
+
+	ch := &discordgo.Channel{
+		ID:       "thread-channel",
+		ParentID: "other-parent",
+	}
 	if isParentChannelMuted(ch) {
-		t.Error("ミュートされていない親チャンネルに対してtrueが返された")
-	}
-}
-
-func TestIsParentChannelMuted_親チャンネルがミュートされている場合はtrueを返す(t *testing.T) {
-	setupTestDB(t)
-
-	parentID := "muted-parent"
-	if err := service.ToMute(parentID); err != nil {
-		t.Fatalf("ミュート設定に失敗: %v", err)
-	}
-
-	ch := &discordgo.Channel{ParentID: parentID}
-	if !isParentChannelMuted(ch) {
-		t.Error("ミュートされた親チャンネルに対してfalseが返された")
-	}
-}
-
-func TestIsParentChannelMuted_親チャンネルのミュート解除後はfalseを返す(t *testing.T) {
-	setupTestDB(t)
-
-	parentID := "mute-then-unmute-parent"
-	if err := service.ToMute(parentID); err != nil {
-		t.Fatalf("ミュート設定に失敗: %v", err)
-	}
-	if err := service.ToUnMute(parentID); err != nil {
-		t.Fatalf("ミュート解除に失敗: %v", err)
-	}
-
-	ch := &discordgo.Channel{ParentID: parentID}
-	if isParentChannelMuted(ch) {
-		t.Error("ミュート解除済みの親チャンネルに対してtrueが返された")
+		t.Error("muting the thread itself should not affect parent mute check")
 	}
 }
