@@ -16,6 +16,15 @@ type Senryu struct {
 // MutedChannel is struct of muted channel.
 type MutedChannel struct {
 	ChannelID string `gorm:"primaryKey"`
+	GuildID   string `gorm:"column:guild_id;index"`
+}
+
+// GuildChannelTypeSetting stores per-guild channel type overrides.
+// Only rows that differ from the default are stored.
+type GuildChannelTypeSetting struct {
+	GuildID     string `gorm:"primaryKey;column:guild_id"`
+	ChannelType int    `gorm:"primaryKey;column:channel_type"`
+	Enabled     bool   `gorm:"column:enabled"`
 }
 
 // DetectionOptOut is struct of per-user detection opt-out.
