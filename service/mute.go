@@ -23,20 +23,23 @@ func IsMute(id string) bool {
 }
 
 // ToMute mutes a channel
-func ToMute(id string) error {
+func ToMute(channelID, guildID string) error {
 	metrics.RecordDatabaseOperation("mute_channel")
 
-	muted := model.MutedChannel{ChannelID: id}
-	if err := db.DB.FirstOrCreate(&muted, &model.MutedChannel{ChannelID: id}).Error; err != nil {
+	muted := model.MutedChannel{ChannelID: channelID, GuildID: guildID}
+	if err := db.DB.Where("channel_id = ?", channelID).
+		Assign(model.MutedChannel{GuildID: guildID}).
+		FirstOrCreate(&muted).Error; err != nil {
 		metrics.RecordError("database")
 		logger.Error("Failed to mute channel",
 			"error", err,
-			"channel_id", id,
+			"channel_id", channelID,
+			"guild_id", guildID,
 		)
 		return errors.Wrap(err, "failed to mute channel")
 	}
 
-	logger.Info("Channel muted", "channel_id", id)
+	logger.Info("Channel muted", "channel_id", channelID, "guild_id", guildID)
 	return nil
 }
 
