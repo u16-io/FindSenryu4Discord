@@ -364,15 +364,8 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	// Channel type behavior
-	switch ch.Type {
-	case discordgo.ChannelTypeDM, discordgo.ChannelTypeGroupDM:
-		s.ChannelMessageSend(m.ChannelID, "個チャはダメです")
+	if !isSenryuTargetChannel(ch.Type) {
 		return
-	default:
-		if !isSenryuTargetChannel(ch.Type) {
-			return
-		}
 	}
 
 	// Skip senryu features in admin guild
@@ -421,8 +414,8 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 func isSenryuTargetChannel(ct discordgo.ChannelType) bool {
 	switch ct {
 	case discordgo.ChannelTypeGuildText,
-		discordgo.ChannelTypeGuildNews,
 		discordgo.ChannelTypeGuildVoice,
+		discordgo.ChannelTypeGuildStageVoice,
 		discordgo.ChannelTypeGuildNewsThread,
 		discordgo.ChannelTypeGuildPublicThread,
 		discordgo.ChannelTypeGuildPrivateThread:

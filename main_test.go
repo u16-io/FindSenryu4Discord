@@ -30,8 +30,8 @@ func TestIsSenryuTargetChannel_検出対象のチャンネルタイプでtrueを
 		channelType discordgo.ChannelType
 	}{
 		{"テキストチャンネル", discordgo.ChannelTypeGuildText},
-		{"アナウンスチャンネル", discordgo.ChannelTypeGuildNews},
 		{"ボイスチャンネル", discordgo.ChannelTypeGuildVoice},
+		{"ステージチャンネル", discordgo.ChannelTypeGuildStageVoice},
 		{"ニューススレッド", discordgo.ChannelTypeGuildNewsThread},
 		{"公開スレッド", discordgo.ChannelTypeGuildPublicThread},
 		{"プライベートスレッド", discordgo.ChannelTypeGuildPrivateThread},
@@ -54,8 +54,8 @@ func TestIsSenryuTargetChannel_検出対象外のチャンネルタイプでfals
 		{"DM", discordgo.ChannelTypeDM},
 		{"グループDM", discordgo.ChannelTypeGroupDM},
 		{"カテゴリ", discordgo.ChannelTypeGuildCategory},
+		{"アナウンスチャンネル", discordgo.ChannelTypeGuildNews},
 		{"ストアチャンネル", discordgo.ChannelTypeGuildStore},
-		{"ステージチャンネル", discordgo.ChannelTypeGuildStageVoice},
 		{"ディレクトリ", discordgo.ChannelTypeGuildDirectory},
 		{"フォーラムチャンネル", discordgo.ChannelTypeGuildForum},
 		{"メディアチャンネル", discordgo.ChannelTypeGuildMedia},
