@@ -139,6 +139,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Set Gateway Intents explicitly for state cache and message content
+	dg.Identify.Intents = discordgo.IntentGuilds |
+		discordgo.IntentGuildMessages |
+		discordgo.IntentMessageContent
+
 	// Add handlers
 	dg.AddHandler(messageCreate)
 	dg.AddHandler(interactionCreate)
@@ -357,11 +362,14 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	metrics.RecordMessageProcessed()
 
-	ch, err := s.Channel(m.ChannelID)
+	ch, err := s.State.Channel(m.ChannelID)
 	if err != nil {
-		logger.Warn("Failed to get channel", "error", err, "channel_id", m.ChannelID)
-		metrics.RecordError("discord_api")
-		return
+		ch, err = s.Channel(m.ChannelID)
+		if err != nil {
+			logger.Warn("Failed to get channel", "error", err, "channel_id", m.ChannelID)
+			metrics.RecordError("discord_api")
+			return
+		}
 	}
 
 	if !isSenryuTargetChannel(ch.Type) {
@@ -495,9 +503,12 @@ func handleRankCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		return
 	}
 
-	guild, err := s.Guild(i.GuildID)
+	guild, err := s.State.Guild(i.GuildID)
 	if err != nil {
-		logger.Warn("Failed to get guild for rank embed", "error", err, "guild_id", i.GuildID)
+		guild, err = s.Guild(i.GuildID)
+		if err != nil {
+			logger.Warn("Failed to get guild for rank embed", "error", err, "guild_id", i.GuildID)
+		}
 	}
 
 	embed := discordgo.MessageEmbed{
