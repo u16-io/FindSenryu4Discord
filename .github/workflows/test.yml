@@ -21,5 +21,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y mecab libmecab-dev mecab-ipadic-utf8
 
+      - name: Build
+        run: go build -o /dev/null .
+
       - name: Run tests
         run: go test -v -race ./...
