@@ -31,6 +31,9 @@ var (
 	adminNotifier *adminnotify.Manager
 	botReady      atomic.Bool
 
+	// adminPermission is used for DefaultMemberPermissions on admin-only commands.
+	adminPermission int64 = discordgo.PermissionAdministrator
+
 	userCommands = []*discordgo.ApplicationCommand{
 		{
 			Name:        "mute",
@@ -55,6 +58,11 @@ var (
 					Required:    false,
 				},
 			},
+		},
+		{
+			Name:                     "channel",
+			Description:              "チャンネルタイプ別の川柳検出設定を変更します",
+			DefaultMemberPermissions: &adminPermission,
 		},
 		{
 			Name:        "detect",
@@ -83,6 +91,7 @@ var (
 		"mute":    handleMuteCommand,
 		"unmute":  handleUnmuteCommand,
 		"rank":    handleRankCommand,
+		"channel": commands.HandleChannelCommand,
 		"delete":  commands.HandleDeleteCommand,
 		"detect":  commands.HandleDetectCommand,
 		"admin":   commands.HandleAdminCommand,
@@ -300,12 +309,23 @@ func guildDelete(s *discordgo.Session, g *discordgo.GuildDelete) {
 	// Clean up guild data
 	senryuCount, err := service.DeleteSenryuByServer(g.ID)
 	if err != nil {
-		logger.Error("Failed to clean up senryus on guild leave", "error", err, "guild_id", g.ID)
+		logger.Error("Failed to clean up guild data", "error", err, "guild_id", g.ID, "type", "senryus")
 	}
 	optOutCount, err := service.DeleteOptOutByServer(g.ID)
 	if err != nil {
-		logger.Error("Failed to clean up opt-outs on guild leave", "error", err, "guild_id", g.ID)
+		logger.Error("Failed to clean up guild data", "error", err, "guild_id", g.ID, "type", "opt-outs")
 	}
+	channelConfigCount, err := service.DeleteChannelConfigByGuild(g.ID)
+	if err != nil {
+		logger.Error("Failed to clean up guild data", "error", err, "guild_id", g.ID, "type", "channel-config")
+	}
+
+	logger.Info("Guild data cleaned up",
+		"guild_id", g.ID,
+		"senryus", senryuCount,
+		"opt_outs", optOutCount,
+		"channel_configs", channelConfigCount,
+	)
 
 	if botReady.Load() && adminNotifier != nil {
 		adminNotifier.NotifyGuildLeave(g, senryuCount, optOutCount)
@@ -347,6 +367,8 @@ func handleComponentInteraction(s *discordgo.Session, i *discordgo.InteractionCr
 		commands.HandleDeleteCancel(s, i)
 	case strings.HasPrefix(customID, commands.ContactReplyPrefix):
 		commands.HandleContactReplyButton(s, i)
+	case strings.HasPrefix(customID, commands.ChannelTogglePrefix):
+		commands.HandleChannelToggle(s, i)
 	}
 }
 
@@ -364,7 +386,15 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	if !isSenryuTargetChannel(ch.Type) {
+	// DM channels are not supported
+	switch ch.Type {
+	case discordgo.ChannelTypeDM, discordgo.ChannelTypeGroupDM:
+		s.ChannelMessageSend(m.ChannelID, "個チャはダメです")
+		return
+	}
+
+	// Check if this channel type is enabled for the guild
+	if !service.IsChannelTypeEnabled(m.GuildID, ch.Type) {
 		return
 	}
 
@@ -410,35 +440,12 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 }
 
-// isSenryuTargetChannel returns true if the channel type is a target for senryu detection.
-func isSenryuTargetChannel(ct discordgo.ChannelType) bool {
-	switch ct {
-	case discordgo.ChannelTypeGuildText,
-		discordgo.ChannelTypeGuildVoice,
-		discordgo.ChannelTypeGuildStageVoice,
-		discordgo.ChannelTypeGuildNewsThread,
-		discordgo.ChannelTypeGuildPublicThread,
-		discordgo.ChannelTypeGuildPrivateThread:
-		return true
-	default:
-		return false
-	}
-}
-
-// isParentChannelMuted checks if the parent channel of a thread is muted.
-func isParentChannelMuted(ch *discordgo.Channel) bool {
-	if ch.ParentID == "" {
-		return false
-	}
-	return service.IsMute(ch.ParentID)
-}
-
 var medals = []string{"🥇", "🥈", "🥉", "🎖️", "🎖️"}
 
 func handleMuteCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	metrics.RecordCommandExecuted("mute")
 
-	if err := service.ToMute(i.ChannelID); err != nil {
+	if err := service.ToMute(i.ChannelID, i.GuildID); err != nil {
 		logger.Error("Failed to mute channel", "error", err, "channel_id", i.ChannelID)
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
@@ -584,6 +591,14 @@ func handleYomeYomuna(m *discordgo.MessageCreate, s *discordgo.Session) bool {
 		return true
 	}
 	return false
+}
+
+// isParentChannelMuted checks if the parent channel of a thread is muted.
+func isParentChannelMuted(ch *discordgo.Channel) bool {
+	if ch.ParentID == "" {
+		return false
+	}
+	return service.IsMute(ch.ParentID)
 }
 
 func sliceUnique(target []string) (unique []string) {
