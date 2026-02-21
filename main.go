@@ -14,9 +14,9 @@ import (
 	"github.com/u16-io/FindSenryu4Discord/config"
 	"github.com/u16-io/FindSenryu4Discord/db"
 	"github.com/u16-io/FindSenryu4Discord/model"
+	"github.com/u16-io/FindSenryu4Discord/pkg/adminnotify"
 	"github.com/u16-io/FindSenryu4Discord/pkg/backup"
 	"github.com/u16-io/FindSenryu4Discord/pkg/health"
-	"github.com/u16-io/FindSenryu4Discord/pkg/adminnotify"
 	"github.com/u16-io/FindSenryu4Discord/pkg/logger"
 	"github.com/u16-io/FindSenryu4Discord/pkg/metrics"
 	"github.com/u16-io/FindSenryu4Discord/pkg/permissions"
@@ -27,9 +27,9 @@ import (
 )
 
 var (
-	startTime           time.Time
+	startTime     time.Time
 	adminNotifier *adminnotify.Manager
-	botReady            atomic.Bool
+	botReady      atomic.Bool
 
 	userCommands = []*discordgo.ApplicationCommand{
 		{
@@ -369,11 +369,13 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	case discordgo.ChannelTypeDM, discordgo.ChannelTypeGroupDM:
 		s.ChannelMessageSend(m.ChannelID, "個チャはダメです")
 		return
-	case discordgo.ChannelTypeGuildVoice, discordgo.ChannelTypeGuildStageVoice:
-		return
-	}
-
-	if ch.Type != discordgo.ChannelTypeGuildText {
+	case discordgo.ChannelTypeGuildText,
+		discordgo.ChannelTypeGuildVoice,
+		discordgo.ChannelTypeGuildNewsThread,
+		discordgo.ChannelTypeGuildPublicThread,
+		discordgo.ChannelTypeGuildPrivateThread:
+		// 検出対象のチャンネルタイプ
+	default:
 		return
 	}
 
@@ -386,7 +388,7 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	if !service.IsMute(m.ChannelID) {
+	if !service.IsMute(m.ChannelID) && !isParentChannelMuted(ch) {
 		if m.Author.ID != s.State.User.ID {
 			if service.IsDetectionOptedOut(m.GuildID, m.Author.ID) {
 				return
@@ -417,6 +419,14 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			}
 		}
 	}
+}
+
+// isParentChannelMuted checks if the parent channel of a thread is muted.
+func isParentChannelMuted(ch *discordgo.Channel) bool {
+	if ch.ParentID == "" {
+		return false
+	}
+	return service.IsMute(ch.ParentID)
 }
 
 var medals = []string{"🥇", "🥈", "🥉", "🎖️", "🎖️"}
