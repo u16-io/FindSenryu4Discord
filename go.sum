@@ -1,5 +1,5 @@
-github.com/0x307e/go-haiku v0.0.0-20260322041145-54793799b326 h1:U2hPwFrSEnQCKBXw3VK93vcxsxY7DXn90g3iBypKjiY=
-github.com/0x307e/go-haiku v0.0.0-20260322041145-54793799b326/go.mod h1:AFxkLUJbj5HTSMCksfgb4V7LFxY3dTlDKdCjWoToyCI=
+github.com/0x307e/go-haiku v0.0.0-20260322130653-5657c5fab170 h1:5m2z3GrvuHLS2KeE+7P2CxyO/i7rMVxvbigNITCzgIk=
+github.com/0x307e/go-haiku v0.0.0-20260322130653-5657c5fab170/go.mod h1:AFxkLUJbj5HTSMCksfgb4V7LFxY3dTlDKdCjWoToyCI=
 github.com/PuerkitoBio/goquery v1.5.1/go.mod h1:GsLWisAFVj4WgDibEWF4pvYnkVQBpKBKeU+7zCJoLcc=
 github.com/andybalholm/cascadia v1.1.0/go.mod h1:GsXiBklL0woXo1j/WYWtSYYC4ouU9PqHO0sqidkEA4Y=
 github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=

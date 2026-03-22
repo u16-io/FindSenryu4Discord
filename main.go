@@ -520,7 +520,7 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			if spoiler {
 				content = stripSpoilerMarkers(content)
 			}
-			h := haiku.Find(content, []int{5, 7, 5})
+			h := findHaikuSafe(content, []int{5, 7, 5})
 			if len(h) != 0 {
 				senryu := strings.Split(h[0], " ")
 				created, err := service.CreateSenryu(
@@ -752,6 +752,17 @@ var reDiscordTokens = regexp.MustCompile(
 
 func containsDiscordTokens(s string) bool {
 	return reDiscordTokens.MatchString(s)
+}
+
+// findHaikuSafe wraps haiku.Find with recover to prevent panics from crashing the bot.
+func findHaikuSafe(content string, rule []int) (result []string) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Warn("Recovered from panic in haiku.Find", "error", r, "content_len", len(content))
+			result = nil
+		}
+	}()
+	return haiku.Find(content, rule)
 }
 
 var reSpoiler = regexp.MustCompile(`\|\|.+?\|\|`)
