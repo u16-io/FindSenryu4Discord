@@ -70,6 +70,9 @@ func HandleDeleteCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	menuOptions := make([]discordgo.SelectMenuOption, 0, len(senryus))
 	for _, sr := range senryus {
 		text := fmt.Sprintf("%s %s %s", sr.Kamigo, sr.Nakasichi, sr.Simogo)
+		if sr.Spoiler {
+			text = "🔒 " + text
+		}
 		menuOptions = append(menuOptions, discordgo.SelectMenuOption{
 			Label: text,
 			Value: strconv.Itoa(sr.ID),
@@ -115,7 +118,12 @@ func HandleDeleteSelectMenu(s *discordgo.Session, i *discordgo.InteractionCreate
 		return
 	}
 
-	text := fmt.Sprintf("「%s %s %s」を削除しますか？", senryu.Kamigo, senryu.Nakasichi, senryu.Simogo)
+	var text string
+	if senryu.Spoiler {
+		text = fmt.Sprintf("||「%s %s %s」||を削除しますか？", senryu.Kamigo, senryu.Nakasichi, senryu.Simogo)
+	} else {
+		text = fmt.Sprintf("「%s %s %s」を削除しますか？", senryu.Kamigo, senryu.Nakasichi, senryu.Simogo)
+	}
 
 	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseUpdateMessage,
@@ -179,8 +187,13 @@ func HandleDeleteConfirm(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		return
 	}
 
-	text := fmt.Sprintf("「%s %s %s」を削除しました", senryu.Kamigo, senryu.Nakasichi, senryu.Simogo)
-	respondComponentUpdate(s, i, text)
+	var deleteText string
+	if senryu.Spoiler {
+		deleteText = fmt.Sprintf("||「%s %s %s」||を削除しました", senryu.Kamigo, senryu.Nakasichi, senryu.Simogo)
+	} else {
+		deleteText = fmt.Sprintf("「%s %s %s」を削除しました", senryu.Kamigo, senryu.Nakasichi, senryu.Simogo)
+	}
+	respondComponentUpdate(s, i, deleteText)
 }
 
 // HandleDeleteCancel handles the cancel button for delete

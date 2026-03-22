@@ -515,7 +515,12 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			if containsDiscordTokens(m.Content) {
 				return
 			}
-			h := haiku.Find(m.Content, []int{5, 7, 5})
+			content := m.Content
+			spoiler := containsSpoiler(content)
+			if spoiler {
+				content = stripSpoilerMarkers(content)
+			}
+			h := haiku.Find(content, []int{5, 7, 5})
 			if len(h) != 0 {
 				senryu := strings.Split(h[0], " ")
 				created, err := service.CreateSenryu(
@@ -525,6 +530,7 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 						Kamigo:    senryu[0],
 						Nakasichi: senryu[1],
 						Simogo:    senryu[2],
+						Spoiler:   spoiler,
 					},
 				)
 				if err != nil {
@@ -532,9 +538,13 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 					metrics.RecordError("database")
 					return
 				}
+				replyText := fmt.Sprintf("川柳を検出しました！\n「%s」", h[0])
+				if spoiler {
+					replyText = fmt.Sprintf("川柳を検出しました！\n||「%s」||", h[0])
+				}
 				if _, err := s.ChannelMessageSendReply(
 					m.ChannelID,
-					fmt.Sprintf("川柳を検出しました！\n「%s」", h[0]),
+					replyText,
 					m.Reference(),
 				); err != nil {
 					logger.Warn("Failed to send senryu reply", "error", err, "channel_id", m.ChannelID)
@@ -742,6 +752,16 @@ var reDiscordTokens = regexp.MustCompile(
 
 func containsDiscordTokens(s string) bool {
 	return reDiscordTokens.MatchString(s)
+}
+
+var reSpoiler = regexp.MustCompile(`\|\|.+?\|\|`)
+
+func containsSpoiler(s string) bool {
+	return reSpoiler.MatchString(s)
+}
+
+func stripSpoilerMarkers(s string) string {
+	return strings.ReplaceAll(s, "||", "")
 }
 
 func getWriters(senryus []model.Senryu, guildID string, session *discordgo.Session) []string {

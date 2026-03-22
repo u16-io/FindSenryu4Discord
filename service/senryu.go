@@ -63,7 +63,11 @@ func GetLastSenryu(serverID string, userID string) (string, error) {
 	} else {
 		str = "<@" + s.AuthorID + "> "
 	}
-	str += "が「" + s.Kamigo + " " + s.Nakasichi + " " + s.Simogo + "」って詠んだのが最後やぞ"
+	if s.Spoiler {
+		str += "が||「" + s.Kamigo + " " + s.Nakasichi + " " + s.Simogo + "」||って詠んだのが最後やぞ"
+	} else {
+		str += "が「" + s.Kamigo + " " + s.Nakasichi + " " + s.Simogo + "」って詠んだのが最後やぞ"
+	}
 
 	return str, nil
 }
@@ -73,7 +77,7 @@ func GetThreeRandomSenryus(serverID string) ([]model.Senryu, error) {
 	metrics.RecordDatabaseOperation("get_random_senryus")
 
 	var s []model.Senryu
-	if err := db.DB.Where(&model.Senryu{ServerID: serverID}).Find(&s).Error; err != nil {
+	if err := db.DB.Where("server_id = ? AND spoiler = ?", serverID, false).Find(&s).Error; err != nil {
 		metrics.RecordError("database")
 		logger.Warn("Failed to get senryus",
 			"error", err,

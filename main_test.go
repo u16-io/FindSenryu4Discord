@@ -96,6 +96,53 @@ func TestContainsDiscordTokens(t *testing.T) {
 	}
 }
 
+func TestContainsSpoiler(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  bool
+	}{
+		{"スポイラーあり", "これは||ネタバレ||です", true},
+		{"スポイラーなし", "古池や蛙飛び込む水の音", false},
+		{"複数スポイラー", "||秘密||と||内緒||の話", true},
+		{"パイプ1本", "条件A|条件B", false},
+		{"空文字列", "", false},
+		{"スポイラー内が空", "||||", false},
+		{"スポイラー内にスペース", "||秘密の 内容||です", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := containsSpoiler(tt.input)
+			if got != tt.want {
+				t.Errorf("containsSpoiler(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestStripSpoilerMarkers(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"スポイラーあり", "これは||ネタバレ||です", "これはネタバレです"},
+		{"スポイラーなし", "普通のテキスト", "普通のテキスト"},
+		{"複数スポイラー", "||秘密||と||内緒||の話", "秘密と内緒の話"},
+		{"空文字列", "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := stripSpoilerMarkers(tt.input)
+			if got != tt.want {
+				t.Errorf("stripSpoilerMarkers(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestIsParentChannelMuted_親チャンネルがミュート(t *testing.T) {
 	setupTestDB(t)
 
