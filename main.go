@@ -470,7 +470,7 @@ func handleComponentInteraction(s *discordgo.Session, i *discordgo.InteractionCr
 }
 
 func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
-	if m.Author.Bot {
+	if m.Author == nil || m.Author.Bot {
 		return
 	}
 
