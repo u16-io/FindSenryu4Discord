@@ -12,22 +12,24 @@ import (
 
 // Manager handles admin notifications (guild join/leave, daily summary).
 type Manager struct {
-	session        *discordgo.Session
-	allSessions    []*discordgo.Session
-	logChannelID   string
-	prevGuildCount int
-	stopCh         chan struct{}
-	stoppedCh      chan struct{}
+	session         *discordgo.Session
+	allSessions     []*discordgo.Session
+	logChannelID    string // real-time notifications (guild join/leave)
+	reportChannelID string // daily report
+	prevGuildCount  int
+	prevUserCount   int
+	stopCh          chan struct{}
+	stoppedCh       chan struct{}
 }
 
 // NewManager creates a new admin notification manager.
-// It captures the current guild count as the baseline for daily diff.
-func NewManager(session *discordgo.Session, logChannelID string) *Manager {
+func NewManager(session *discordgo.Session, logChannelID, reportChannelID string) *Manager {
 	return &Manager{
-		session:      session,
-		logChannelID: logChannelID,
-		stopCh:       make(chan struct{}),
-		stoppedCh:    make(chan struct{}),
+		session:         session,
+		logChannelID:    logChannelID,
+		reportChannelID: reportChannelID,
+		stopCh:          make(chan struct{}),
+		stoppedCh:       make(chan struct{}),
 	}
 }
 
@@ -36,6 +38,7 @@ func NewManager(session *discordgo.Session, logChannelID string) *Manager {
 func (m *Manager) SetAllSessions(sessions []*discordgo.Session) {
 	m.allSessions = sessions
 	m.prevGuildCount = m.countAllGuilds()
+	m.prevUserCount = m.countAllUsers()
 }
 
 func (m *Manager) countAllGuilds() int {
@@ -48,21 +51,32 @@ func (m *Manager) countAllGuilds() int {
 	return total
 }
 
+func (m *Manager) countAllUsers() int {
+	total := 0
+	for _, s := range m.allSessions {
+		if s != nil {
+			for _, g := range s.State.Guilds {
+				total += g.MemberCount
+			}
+		}
+	}
+	return total
+}
+
 // Start starts the daily summary scheduler in a goroutine.
-// If logChannelID is empty, it does nothing.
 func (m *Manager) Start() {
-	if m.logChannelID == "" {
-		logger.Info("Admin notification manager disabled (log_channel_id is empty)")
+	if m.reportChannelID == "" {
+		logger.Info("Daily report disabled (report_channel_id is empty)")
 		return
 	}
 
-	logger.Info("Starting admin notification manager", "log_channel_id", m.logChannelID)
+	logger.Info("Starting admin notification manager", "report_channel_id", m.reportChannelID)
 	go m.run()
 }
 
 // Stop gracefully stops the scheduler.
 func (m *Manager) Stop(ctx context.Context) {
-	if m.logChannelID == "" {
+	if m.reportChannelID == "" {
 		return
 	}
 
@@ -72,6 +86,44 @@ func (m *Manager) Stop(ctx context.Context) {
 		logger.Info("Admin notification manager stopped")
 	case <-ctx.Done():
 		logger.Warn("Admin notification manager stop timeout")
+	}
+}
+
+// NotifyStarted sends a bot started notification to the report channel.
+func (m *Manager) NotifyStarted() {
+	if m.reportChannelID == "" {
+		return
+	}
+
+	embed := &discordgo.MessageEmbed{
+		Title:     "🟢 Bot 起動完了",
+		Color:     0x57F287,
+		Timestamp: time.Now().Format(time.RFC3339),
+		Fields: []*discordgo.MessageEmbedField{
+			{Name: "接続サーバー数", Value: fmt.Sprintf("%d", m.countAllGuilds()), Inline: true},
+			{Name: "延べユーザー数", Value: fmt.Sprintf("%d 人", m.countAllUsers()), Inline: true},
+		},
+	}
+
+	if _, err := m.session.ChannelMessageSendEmbed(m.reportChannelID, embed); err != nil {
+		logger.Error("Failed to send started notification", "error", err)
+	}
+}
+
+// NotifyStopping sends a bot stopping notification to the report channel.
+func (m *Manager) NotifyStopping() {
+	if m.reportChannelID == "" {
+		return
+	}
+
+	embed := &discordgo.MessageEmbed{
+		Title:     "🔴 Bot 停止中…",
+		Color:     0xED4245,
+		Timestamp: time.Now().Format(time.RFC3339),
+	}
+
+	if _, err := m.session.ChannelMessageSendEmbed(m.reportChannelID, embed); err != nil {
+		logger.Error("Failed to send stopping notification", "error", err)
 	}
 }
 
@@ -170,36 +222,66 @@ func (m *Manager) sendDailySummary() {
 	from := time.Date(yesterday.Year(), yesterday.Month(), yesterday.Day(), 0, 0, 0, 0, jst)
 	to := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, jst)
 
+	// Senryu count
 	count, err := service.CountSenryuByDateRange(from, to)
 	if err != nil {
 		logger.Error("Failed to count senryus for daily summary", "error", err)
 		count = -1
 	}
 
+	// Guild count (API)
 	currentGuilds := m.countAllGuilds()
 	guildDiff := currentGuilds - m.prevGuildCount
 	m.prevGuildCount = currentGuilds
 
-	diffStr := fmt.Sprintf("%d", guildDiff)
-	if guildDiff > 0 {
-		diffStr = "+" + diffStr
+	// User count (API)
+	currentUsers := m.countAllUsers()
+	userDiff := currentUsers - m.prevUserCount
+	m.prevUserCount = currentUsers
+
+	// Active users (DB)
+	type activeUsers struct {
+		current  int64
+		previous int64
+		ok       bool
+	}
+	fetchAU := func(days int) activeUsers {
+		cur, err1 := service.CountUniqueAuthorsByDateRange(to.AddDate(0, 0, -days), to)
+		prev, err2 := service.CountUniqueAuthorsByDateRange(to.AddDate(0, 0, -days*2), to.AddDate(0, 0, -days))
+		if err1 != nil || err2 != nil {
+			logger.Error("Failed to count active users", "days", days, "err_current", err1, "err_previous", err2)
+			return activeUsers{ok: false}
+		}
+		return activeUsers{current: cur, previous: prev, ok: true}
+	}
+	dau := fetchAU(1)
+	wau := fetchAU(7)
+	mau := fetchAU(30)
+
+	// Build fields
+	fields := []*discordgo.MessageEmbedField{
+		{Name: "✍️ 前日の川柳数", Value: formatCount(count, "句"), Inline: true},
+		{Name: formatDiffEmoji("接続サーバー数", guildDiff), Value: formatDiffValue(currentGuilds, guildDiff), Inline: true},
+		{Name: formatDiffEmoji("延べユーザー数", userDiff), Value: formatDiffValue(currentUsers, userDiff), Inline: true},
 	}
 
-	var countStr string
-	if count < 0 {
-		countStr = "💀 取得失敗"
-	} else {
-		countStr = fmt.Sprintf("%d 句", count)
+	if dau.ok {
+		diff := int(dau.current - dau.previous)
+		fields = append(fields, &discordgo.MessageEmbedField{
+			Name: formatDiffEmoji("DAU", diff), Value: formatDiffValue64(dau.current, diff), Inline: true,
+		})
 	}
-
-	var guildEmoji string
-	switch {
-	case guildDiff > 0:
-		guildEmoji = "📈"
-	case guildDiff < 0:
-		guildEmoji = "📉"
-	default:
-		guildEmoji = "➡️"
+	if wau.ok {
+		diff := int(wau.current - wau.previous)
+		fields = append(fields, &discordgo.MessageEmbedField{
+			Name: formatDiffEmoji("WAU", diff), Value: formatDiffValue64(wau.current, diff), Inline: true,
+		})
+	}
+	if mau.ok {
+		diff := int(mau.current - mau.previous)
+		fields = append(fields, &discordgo.MessageEmbedField{
+			Name: formatDiffEmoji("MAU", diff), Value: formatDiffValue64(mau.current, diff), Inline: true,
+		})
 	}
 
 	embed := &discordgo.MessageEmbed{
@@ -207,15 +289,44 @@ func (m *Manager) sendDailySummary() {
 		Description: fmt.Sprintf("**%s** の一日をお届けします！", from.Format("2006/01/02")),
 		Color:       0x5865F2,
 		Timestamp:   time.Now().Format(time.RFC3339),
-		Fields: []*discordgo.MessageEmbedField{
-			{Name: "✍️ 前日の川柳数", Value: countStr, Inline: true},
-			{Name: fmt.Sprintf("%s 接続サーバー数", guildEmoji), Value: fmt.Sprintf("%d (%s)", currentGuilds, diffStr), Inline: true},
-		},
+		Fields:      fields,
 	}
 
-	if _, err := m.session.ChannelMessageSendEmbed(m.logChannelID, embed); err != nil {
+	if _, err := m.session.ChannelMessageSendEmbed(m.reportChannelID, embed); err != nil {
 		logger.Error("Failed to send daily summary", "error", err)
 	}
+}
+
+func formatCount(count int64, unit string) string {
+	if count < 0 {
+		return "💀 取得失敗"
+	}
+	return fmt.Sprintf("%d %s", count, unit)
+}
+
+func formatDiffEmoji(label string, diff int) string {
+	var emoji string
+	switch {
+	case diff > 0:
+		emoji = "📈"
+	case diff < 0:
+		emoji = "📉"
+	default:
+		emoji = "➡️"
+	}
+	return fmt.Sprintf("%s %s", emoji, label)
+}
+
+func formatDiffValue(current, diff int) string {
+	diffStr := fmt.Sprintf("%d", diff)
+	if diff > 0 {
+		diffStr = "+" + diffStr
+	}
+	return fmt.Sprintf("%d (%s)", current, diffStr)
+}
+
+func formatDiffValue64(current int64, diff int) string {
+	return formatDiffValue(int(current), diff)
 }
 
 // loadJST returns the Asia/Tokyo location, falling back to a fixed UTC+9 zone.

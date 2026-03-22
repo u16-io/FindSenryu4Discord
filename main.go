@@ -261,10 +261,11 @@ func main() {
 	metrics.SetDatabaseStats(dbStats.SenryuCount, dbStats.MutedChannelCount)
 
 	// Initialize admin notification manager
-	if conf.Admin.LogChannelID != "" {
-		adminNotifier = adminnotify.NewManager(dg, conf.Admin.LogChannelID)
+	if conf.Admin.LogChannelID != "" || conf.Admin.ReportChannelID != "" {
+		adminNotifier = adminnotify.NewManager(dg, conf.Admin.LogChannelID, conf.Admin.ReportChannelID)
 		adminNotifier.SetAllSessions(allSessions)
 		adminNotifier.Start()
+		adminNotifier.NotifyStarted()
 	}
 	botReady.Store(true)
 
@@ -294,6 +295,7 @@ func main() {
 
 	// Stop admin notification manager
 	if adminNotifier != nil {
+		adminNotifier.NotifyStopping()
 		adminNotifier.Stop(ctx)
 	}
 

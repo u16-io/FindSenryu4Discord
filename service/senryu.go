@@ -229,6 +229,27 @@ func DeleteSenryuByServer(serverID string) (int64, error) {
 	return result.RowsAffected, nil
 }
 
+// CountUniqueAuthorsByDateRange returns the number of unique authors who created senryus within [from, to)
+func CountUniqueAuthorsByDateRange(from, to time.Time) (int64, error) {
+	metrics.RecordDatabaseOperation("count_unique_authors_by_date_range")
+
+	var count int64
+	if err := db.DB.Model(&model.Senryu{}).
+		Where("created_at >= ? AND created_at < ?", from, to).
+		Select("COUNT(DISTINCT author_id)").
+		Count(&count).Error; err != nil {
+		metrics.RecordError("database")
+		logger.Warn("Failed to count unique authors by date range",
+			"error", err,
+			"from", from,
+			"to", to,
+		)
+		return 0, errors.Wrap(err, "failed to count unique authors by date range")
+	}
+
+	return count, nil
+}
+
 // CountSenryuByDateRange returns the count of senryus created within the given time range [from, to)
 func CountSenryuByDateRange(from, to time.Time) (int64, error) {
 	metrics.RecordDatabaseOperation("count_senryu_by_date_range")

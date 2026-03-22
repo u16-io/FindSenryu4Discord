@@ -14,8 +14,9 @@ format = "text"  # json, text
 [admin]
 owner_ids = []  # Bot admin Discord IDs
 guild_id = ""   # Guild ID for admin commands
-log_channel_id = ""       # サーバー参加通知・日次サマリー送信先
-contact_channel_id = ""   # /contact コマンドのお問い合わせ通知先
+log_channel_id = ""        # リアルタイム通知送信先（サーバー参加/離脱）
+report_channel_id = ""     # デイリーレポート送信先
+contact_channel_id = ""    # /contact コマンドのお問い合わせ通知先
 
 [server]
 enabled = true
