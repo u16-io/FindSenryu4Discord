@@ -85,8 +85,27 @@ func initDB() error {
 		logger.Error("Failed to migrate database", "error", err)
 		return err
 	}
+
+	// Backfill NULL spoiler values to false
+	if err := migrateSpoilerColumn(); err != nil {
+		logger.Error("Failed to migrate spoiler column", "error", err)
+		return err
+	}
+
 	logger.Debug("Database migration completed")
 
+	return nil
+}
+
+// migrateSpoilerColumn backfills NULL spoiler values to false.
+func migrateSpoilerColumn() error {
+	result := DB.Exec("UPDATE senryus SET spoiler = false WHERE spoiler IS NULL")
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected > 0 {
+		logger.Info("Backfilled NULL spoiler values", "rows", result.RowsAffected)
+	}
 	return nil
 }
 
