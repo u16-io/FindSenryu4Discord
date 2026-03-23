@@ -70,7 +70,7 @@ func HandleDeleteCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	menuOptions := make([]discordgo.SelectMenuOption, 0, len(senryus))
 	for _, sr := range senryus {
 		text := fmt.Sprintf("%s %s %s", sr.Kamigo, sr.Nakasichi, sr.Simogo)
-		if sr.Spoiler {
+		if sr.Spoiler != nil && *sr.Spoiler {
 			text = "🔒 " + text
 		}
 		menuOptions = append(menuOptions, discordgo.SelectMenuOption{
@@ -119,7 +119,7 @@ func HandleDeleteSelectMenu(s *discordgo.Session, i *discordgo.InteractionCreate
 	}
 
 	var text string
-	if senryu.Spoiler {
+	if senryu.Spoiler != nil && *senryu.Spoiler {
 		text = fmt.Sprintf("||「%s %s %s」||を削除しますか？", senryu.Kamigo, senryu.Nakasichi, senryu.Simogo)
 	} else {
 		text = fmt.Sprintf("「%s %s %s」を削除しますか？", senryu.Kamigo, senryu.Nakasichi, senryu.Simogo)
@@ -188,7 +188,7 @@ func HandleDeleteConfirm(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	}
 
 	var deleteText string
-	if senryu.Spoiler {
+	if senryu.Spoiler != nil && *senryu.Spoiler {
 		deleteText = fmt.Sprintf("||「%s %s %s」||を削除しました", senryu.Kamigo, senryu.Nakasichi, senryu.Simogo)
 	} else {
 		deleteText = fmt.Sprintf("「%s %s %s」を削除しました", senryu.Kamigo, senryu.Nakasichi, senryu.Simogo)

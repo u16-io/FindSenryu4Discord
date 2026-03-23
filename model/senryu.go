@@ -10,7 +10,7 @@ type Senryu struct {
 	Kamigo    string    `gorm:"column:kamigo"`
 	Nakasichi string    `gorm:"column:nakasichi"`
 	Simogo    string    `gorm:"column:simogo"`
-	Spoiler   bool      `gorm:"column:spoiler;not null;default:false"`
+	Spoiler   *bool     `gorm:"column:spoiler;not null"`
 	CreatedAt time.Time `gorm:"column:created_at"`
 }
 

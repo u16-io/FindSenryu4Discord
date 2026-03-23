@@ -63,7 +63,7 @@ func GetLastSenryu(serverID string, userID string) (string, error) {
 	} else {
 		str = "<@" + s.AuthorID + "> "
 	}
-	if s.Spoiler {
+	if s.Spoiler != nil && *s.Spoiler {
 		str += "が||「" + s.Kamigo + " " + s.Nakasichi + " " + s.Simogo + "」||って詠んだのが最後やぞ"
 	} else {
 		str += "が「" + s.Kamigo + " " + s.Nakasichi + " " + s.Simogo + "」って詠んだのが最後やぞ"

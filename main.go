@@ -532,7 +532,7 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 						Kamigo:    senryu[0],
 						Nakasichi: senryu[1],
 						Simogo:    senryu[2],
-						Spoiler:   spoiler,
+						Spoiler:   &spoiler,
 					},
 				)
 				if err != nil {
