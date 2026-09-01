@@ -466,6 +466,13 @@ func notifyGuildJoin(s *discordgo.Session, g *discordgo.GuildCreate) {
 	}()
 }
 
+func (t *guildEventTracker) markUnavailable(guildID string) {
+	t.unavailableGuilds[guildID] = struct{}{}
+	if err := service.MarkGuildUnavailable(guildID); err != nil {
+		logger.Error("Failed to persist unavailable guild", "error", err, "guild_id", guildID)
+	}
+}
+
 func (t *guildEventTracker) consumeRecovery(guildID string) bool {
 	if _, recovered := t.unavailableGuilds[guildID]; !recovered {
 		return false
@@ -480,6 +487,7 @@ func (t *guildEventTracker) consumeRecovery(guildID string) bool {
 func (t *guildEventTracker) guildCreate(s *discordgo.Session, g *discordgo.GuildCreate) {
 	metrics.SetConnectedGuilds(countAllGuilds())
 	if g.Unavailable {
+		t.markUnavailable(g.ID)
 		logger.Warn("Guild unavailable", "id", g.ID)
 		if !botReady.Load() {
 			cacheGuildCreate(g)
@@ -505,10 +513,7 @@ func (t *guildEventTracker) guildCreate(s *discordgo.Session, g *discordgo.Guild
 
 func (t *guildEventTracker) prepareGuildDelete(g *discordgo.GuildDelete) bool {
 	if g.Unavailable {
-		t.unavailableGuilds[g.ID] = struct{}{}
-		if err := service.MarkGuildUnavailable(g.ID); err != nil {
-			logger.Error("Failed to persist unavailable guild", "error", err, "guild_id", g.ID)
-		}
+		t.markUnavailable(g.ID)
 		logger.Warn("Guild temporarily unavailable", "id", g.ID)
 		return false
 	}

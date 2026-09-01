@@ -67,6 +67,28 @@ func TestGuildCreate_Bot再起動後もUnavailableDeleteからの復旧扱いに
 	}
 }
 
+func TestGuildCreate_Unavailableイベント自体を復旧判定に使う(t *testing.T) {
+	setupTestDB(t)
+	const guildID = "unavailable-on-startup"
+	tracker := newGuildEventTracker()
+	previousBotReady := botReady.Load()
+	botReady.Store(true)
+	t.Cleanup(func() { botReady.Store(previousBotReady) })
+
+	tracker.guildCreate(nil, &discordgo.GuildCreate{
+		Guild: &discordgo.Guild{ID: guildID, Unavailable: true},
+	})
+
+	persistedGuildIDs, err := service.ListUnavailableGuildIDs()
+	if err != nil {
+		t.Fatalf("failed to reload unavailable guilds: %v", err)
+	}
+	afterRestart := newGuildEventTracker(persistedGuildIDs...)
+	if !afterRestart.consumeRecovery(guildID) {
+		t.Error("an unavailable GuildCreate should make the next available event a recovery")
+	}
+}
+
 func TestGuildDelete_確定した脱退で一時切断状態を消去する(t *testing.T) {
 	setupTestDB(t)
 	const guildID = "deleted-guild"
