@@ -153,13 +153,17 @@ type guildEventTracker struct {
 	unavailableGuilds map[string]struct{}
 }
 
-func newGuildEventTracker() *guildEventTracker {
-	return &guildEventTracker{
-		unavailableGuilds: make(map[string]struct{}),
+func newGuildEventTracker(unavailableGuildIDs ...string) *guildEventTracker {
+	tracker := &guildEventTracker{
+		unavailableGuilds: make(map[string]struct{}, len(unavailableGuildIDs)),
 	}
+	for _, guildID := range unavailableGuildIDs {
+		tracker.unavailableGuilds[guildID] = struct{}{}
+	}
+	return tracker
 }
 
-func registerGatewayHandlers(s *discordgo.Session) {
+func registerGatewayHandlers(s *discordgo.Session, unavailableGuildIDs []string) {
 	// DiscordGo otherwise runs typed handlers in independent goroutines, which can
 	// reorder guild availability transitions. Keep dispatch ordered and opt only
 	// the handlers that do substantial work back into asynchronous execution.
@@ -170,7 +174,7 @@ func registerGatewayHandlers(s *discordgo.Session) {
 	s.AddHandler(func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		go interactionCreate(s, i)
 	})
-	tracker := newGuildEventTracker()
+	tracker := newGuildEventTracker(unavailableGuildIDs...)
 	s.AddHandler(tracker.guildCreate)
 	s.AddHandler(tracker.guildDelete)
 	s.AddHandler(onConnect)
@@ -213,6 +217,11 @@ func main() {
 	// Initialize database
 	if err := db.Init(); err != nil {
 		logger.Error("Failed to initialize database", "error", err)
+		os.Exit(1)
+	}
+	unavailableGuildIDs, err := service.ListUnavailableGuildIDs()
+	if err != nil {
+		logger.Error("Failed to load unavailable guilds", "error", err)
 		os.Exit(1)
 	}
 
@@ -266,7 +275,7 @@ func main() {
 		s.ShardCount = shardCount
 		s.Identify.Intents = intents
 
-		registerGatewayHandlers(s)
+		registerGatewayHandlers(s, unavailableGuildIDs)
 
 		if err := s.Open(); err != nil {
 			logger.Error("Failed to open Discord connection", "error", err, "shard", i)
@@ -462,6 +471,9 @@ func (t *guildEventTracker) consumeRecovery(guildID string) bool {
 		return false
 	}
 	delete(t.unavailableGuilds, guildID)
+	if err := service.ClearGuildUnavailable(guildID); err != nil {
+		logger.Error("Failed to clear unavailable guild", "error", err, "guild_id", guildID)
+	}
 	return true
 }
 
@@ -494,12 +506,18 @@ func (t *guildEventTracker) guildCreate(s *discordgo.Session, g *discordgo.Guild
 func (t *guildEventTracker) prepareGuildDelete(g *discordgo.GuildDelete) bool {
 	if g.Unavailable {
 		t.unavailableGuilds[g.ID] = struct{}{}
+		if err := service.MarkGuildUnavailable(g.ID); err != nil {
+			logger.Error("Failed to persist unavailable guild", "error", err, "guild_id", g.ID)
+		}
 		logger.Warn("Guild temporarily unavailable", "id", g.ID)
 		return false
 	}
 
 	// A definitive delete supersedes any earlier temporary-unavailable event.
 	delete(t.unavailableGuilds, g.ID)
+	if err := service.ClearGuildUnavailable(g.ID); err != nil {
+		logger.Error("Failed to clear unavailable guild", "error", err, "guild_id", g.ID)
+	}
 	logger.Info("Left guild", "id", g.ID)
 	metrics.SetConnectedGuilds(countAllGuilds())
 

@@ -18,7 +18,7 @@ func setupTestDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open test database: %v", err)
 	}
-	if err := db.DB.AutoMigrate(&model.MutedChannel{}, &model.GuildChannelTypeSetting{}).Error; err != nil {
+	if err := db.DB.AutoMigrate(&model.MutedChannel{}, &model.GuildChannelTypeSetting{}, &model.UnavailableGuild{}).Error; err != nil {
 		t.Fatalf("failed to migrate test database: %v", err)
 	}
 	t.Cleanup(func() {
@@ -29,43 +29,52 @@ func setupTestDB(t *testing.T) {
 func TestRegisterGatewayHandlers_Guildイベントを同期ディスパッチする(t *testing.T) {
 	session := &discordgo.Session{}
 
-	registerGatewayHandlers(session)
+	registerGatewayHandlers(session, nil)
 
 	if !session.SyncEvents {
 		t.Error("guild availability handlers require ordered synchronous dispatch")
 	}
 }
 
-func TestGuildCreate_UnavailableDelete後は復旧扱いする(t *testing.T) {
-	tracker := newGuildEventTracker()
+func TestGuildCreate_Bot再起動後もUnavailableDeleteからの復旧扱いにする(t *testing.T) {
+	setupTestDB(t)
 	const guildID = "temporarily-unavailable-guild"
+	beforeRestart := newGuildEventTracker()
 
-	if tracker.prepareGuildDelete(&discordgo.GuildDelete{
+	if beforeRestart.prepareGuildDelete(&discordgo.GuildDelete{
 		Guild: &discordgo.Guild{ID: guildID, Unavailable: true},
 	}) {
 		t.Fatal("temporary guild unavailability must not trigger data cleanup")
 	}
-	if _, tracked := tracker.unavailableGuilds[guildID]; !tracked {
-		t.Error("temporarily unavailable guild should be tracked until it recovers")
+
+	persistedGuildIDs, err := service.ListUnavailableGuildIDs()
+	if err != nil {
+		t.Fatalf("failed to reload unavailable guilds: %v", err)
 	}
-	if !tracker.consumeRecovery(guildID) {
-		t.Error("the next available event should be treated as recovery")
+	afterRestart := newGuildEventTracker(persistedGuildIDs...)
+	if !afterRestart.consumeRecovery(guildID) {
+		t.Error("the first available event after restart should be treated as recovery")
 	}
-	if tracker.consumeRecovery(guildID) {
+	if afterRestart.consumeRecovery(guildID) {
 		t.Error("the recovery marker should be consumed only once")
+	}
+	persistedGuildIDs, err = service.ListUnavailableGuildIDs()
+	if err != nil {
+		t.Fatalf("failed to reload unavailable guilds after recovery: %v", err)
+	}
+	if len(persistedGuildIDs) != 0 {
+		t.Errorf("the recovered guild marker should be removed: %v", persistedGuildIDs)
 	}
 }
 
 func TestGuildDelete_確定した脱退で一時切断状態を消去する(t *testing.T) {
-	tracker := newGuildEventTracker()
+	setupTestDB(t)
 	const guildID = "deleted-guild"
+	tracker := newGuildEventTracker()
 	if tracker.prepareGuildDelete(&discordgo.GuildDelete{
 		Guild: &discordgo.Guild{ID: guildID, Unavailable: true},
 	}) {
 		t.Fatal("temporary guild unavailability must not trigger data cleanup")
-	}
-	if _, tracked := tracker.unavailableGuilds[guildID]; !tracked {
-		t.Fatal("temporarily unavailable guild should be tracked")
 	}
 
 	if !tracker.prepareGuildDelete(&discordgo.GuildDelete{
@@ -76,6 +85,13 @@ func TestGuildDelete_確定した脱退で一時切断状態を消去する(t *t
 
 	if _, tracked := tracker.unavailableGuilds[guildID]; tracked {
 		t.Error("permanently deleted guild should no longer be tracked as unavailable")
+	}
+	persistedGuildIDs, err := service.ListUnavailableGuildIDs()
+	if err != nil {
+		t.Fatalf("failed to reload unavailable guilds: %v", err)
+	}
+	if len(persistedGuildIDs) != 0 {
+		t.Errorf("permanently deleted guild should no longer be persisted as unavailable: %v", persistedGuildIDs)
 	}
 }
 
