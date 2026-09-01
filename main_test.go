@@ -26,6 +26,59 @@ func setupTestDB(t *testing.T) {
 	})
 }
 
+func TestRegisterGatewayHandlers_Guildイベントを同期ディスパッチする(t *testing.T) {
+	session := &discordgo.Session{}
+
+	registerGatewayHandlers(session)
+
+	if !session.SyncEvents {
+		t.Error("guild availability handlers require ordered synchronous dispatch")
+	}
+}
+
+func TestGuildCreate_UnavailableDelete後は復旧扱いする(t *testing.T) {
+	tracker := newGuildEventTracker()
+	const guildID = "temporarily-unavailable-guild"
+
+	if tracker.prepareGuildDelete(&discordgo.GuildDelete{
+		Guild: &discordgo.Guild{ID: guildID, Unavailable: true},
+	}) {
+		t.Fatal("temporary guild unavailability must not trigger data cleanup")
+	}
+	if _, tracked := tracker.unavailableGuilds[guildID]; !tracked {
+		t.Error("temporarily unavailable guild should be tracked until it recovers")
+	}
+	if !tracker.consumeRecovery(guildID) {
+		t.Error("the next available event should be treated as recovery")
+	}
+	if tracker.consumeRecovery(guildID) {
+		t.Error("the recovery marker should be consumed only once")
+	}
+}
+
+func TestGuildDelete_確定した脱退で一時切断状態を消去する(t *testing.T) {
+	tracker := newGuildEventTracker()
+	const guildID = "deleted-guild"
+	if tracker.prepareGuildDelete(&discordgo.GuildDelete{
+		Guild: &discordgo.Guild{ID: guildID, Unavailable: true},
+	}) {
+		t.Fatal("temporary guild unavailability must not trigger data cleanup")
+	}
+	if _, tracked := tracker.unavailableGuilds[guildID]; !tracked {
+		t.Fatal("temporarily unavailable guild should be tracked")
+	}
+
+	if !tracker.prepareGuildDelete(&discordgo.GuildDelete{
+		Guild: &discordgo.Guild{ID: guildID},
+	}) {
+		t.Fatal("definitive guild deletion should proceed to data cleanup")
+	}
+
+	if _, tracked := tracker.unavailableGuilds[guildID]; tracked {
+		t.Error("permanently deleted guild should no longer be tracked as unavailable")
+	}
+}
+
 func TestIsChannelTypeEnabled_デフォルト有効タイプ(t *testing.T) {
 	setupTestDB(t)
 
