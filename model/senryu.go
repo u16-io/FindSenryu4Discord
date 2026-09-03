@@ -40,3 +40,8 @@ type Metadata struct {
 	Key   string `gorm:"primaryKey;column:key"`
 	Value string `gorm:"column:value;not null"`
 }
+
+// UnavailableGuild records a guild hidden by a temporary Discord outage.
+type UnavailableGuild struct {
+	GuildID string `gorm:"primaryKey;column:guild_id"`
+}

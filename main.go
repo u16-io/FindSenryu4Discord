@@ -149,6 +149,37 @@ var (
 	}
 )
 
+type guildEventTracker struct {
+	unavailableGuilds map[string]struct{}
+}
+
+func newGuildEventTracker(unavailableGuildIDs ...string) *guildEventTracker {
+	tracker := &guildEventTracker{
+		unavailableGuilds: make(map[string]struct{}, len(unavailableGuildIDs)),
+	}
+	for _, guildID := range unavailableGuildIDs {
+		tracker.unavailableGuilds[guildID] = struct{}{}
+	}
+	return tracker
+}
+
+func registerGatewayHandlers(s *discordgo.Session, unavailableGuildIDs []string) {
+	// DiscordGo otherwise runs typed handlers in independent goroutines, which can
+	// reorder guild availability transitions. Keep dispatch ordered and opt only
+	// the handlers that do substantial work back into asynchronous execution.
+	s.SyncEvents = true
+	s.AddHandler(func(s *discordgo.Session, m *discordgo.MessageCreate) {
+		go messageCreate(s, m)
+	})
+	s.AddHandler(func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+		go interactionCreate(s, i)
+	})
+	tracker := newGuildEventTracker(unavailableGuildIDs...)
+	s.AddHandler(tracker.guildCreate)
+	s.AddHandler(tracker.guildDelete)
+	s.AddHandler(onConnect)
+}
+
 func main() {
 	startTime = time.Now()
 
@@ -186,6 +217,11 @@ func main() {
 	// Initialize database
 	if err := db.Init(); err != nil {
 		logger.Error("Failed to initialize database", "error", err)
+		os.Exit(1)
+	}
+	unavailableGuildIDs, err := service.ListUnavailableGuildIDs()
+	if err != nil {
+		logger.Error("Failed to load unavailable guilds", "error", err)
 		os.Exit(1)
 	}
 
@@ -239,11 +275,7 @@ func main() {
 		s.ShardCount = shardCount
 		s.Identify.Intents = intents
 
-		s.AddHandler(messageCreate)
-		s.AddHandler(interactionCreate)
-		s.AddHandler(guildCreate)
-		s.AddHandler(guildDelete)
-		s.AddHandler(onConnect)
+		registerGatewayHandlers(s, unavailableGuildIDs)
 
 		if err := s.Open(); err != nil {
 			logger.Error("Failed to open Discord connection", "error", err, "shard", i)
@@ -378,7 +410,7 @@ func onConnect(s *discordgo.Session, _ *discordgo.Connect) {
 	logger.Info("Gateway connected, caching guilds...", "shard", s.ShardID, "connected_shards", n, "expected_shards", expectedShards.Load())
 	botReady.Store(false)
 	// Reset debounce timer on new shard connection to prevent premature ready
-	if t := guildCacheTimer.Load(); t != nil {
+	if t := guildCacheTimer.Swap(nil); t != nil {
 		t.Stop()
 	}
 }
@@ -393,49 +425,113 @@ func countAllGuilds() int {
 	return total
 }
 
-func guildCreate(s *discordgo.Session, g *discordgo.GuildCreate) {
-	metrics.SetConnectedGuilds(countAllGuilds())
-	if !botReady.Load() {
-		logger.Debug("Guild cache", "name", g.Name, "id", g.ID)
-		// Register existing guilds so reconnect doesn't trigger welcome messages
-		commands.MarkGuildWelcomeSent(g.ID)
-		// Debounce: reset timer on each GUILD_CREATE during cache burst.
-		// When no more events arrive within 5s, mark as ready.
-		if t := guildCacheTimer.Load(); t != nil {
-			t.Stop()
+func resetGuildCacheTimer() {
+	// Debounce: reset timer on each GUILD_CREATE during cache burst.
+	// When no more events arrive within 5s, mark as ready.
+	t := time.AfterFunc(5*time.Second, func() {
+		if connectedShards.Load() < expectedShards.Load() {
+			// Not all shards connected yet; wait for remaining shards
+			logger.Info("Guild cache paused, waiting for remaining shards",
+				"guilds", countAllGuilds(),
+				"connected_shards", connectedShards.Load(),
+				"expected_shards", expectedShards.Load(),
+			)
+			return
 		}
-		t := time.AfterFunc(5*time.Second, func() {
-			if connectedShards.Load() < expectedShards.Load() {
-				// Not all shards connected yet; wait for remaining shards
-				logger.Info("Guild cache paused, waiting for remaining shards",
-					"guilds", countAllGuilds(),
-					"connected_shards", connectedShards.Load(),
-					"expected_shards", expectedShards.Load(),
-				)
-				return
-			}
-			total := countAllGuilds()
-			logger.Info("Guild cache complete, bot is ready", "guilds", total, "shards", expectedShards.Load())
-			metrics.SetConnectedGuilds(total)
-			botReady.Store(true)
-		})
-		guildCacheTimer.Store(t)
-		return
+		total := countAllGuilds()
+		logger.Info("Guild cache complete, bot is ready", "guilds", total, "shards", expectedShards.Load())
+		metrics.SetConnectedGuilds(total)
+		botReady.Store(true)
+	})
+	if previous := guildCacheTimer.Swap(t); previous != nil {
+		previous.Stop()
 	}
-	logger.Info("Joined guild", "name", g.Name, "id", g.ID)
-	if adminNotifier != nil {
-		adminNotifier.NotifyGuildJoin(g.Guild)
-	}
-	go commands.SendWelcomeMessage(s, g)
 }
 
-func guildDelete(s *discordgo.Session, g *discordgo.GuildDelete) {
+func cacheGuildCreate(g *discordgo.GuildCreate) {
+	logger.Debug("Guild cache", "name", g.Name, "id", g.ID)
+	// Register existing guilds so reconnect doesn't trigger welcome messages
+	commands.MarkGuildWelcomeSent(g.ID)
+	resetGuildCacheTimer()
+}
+
+func notifyGuildJoin(s *discordgo.Session, g *discordgo.GuildCreate) {
+	logger.Info("Joined guild", "name", g.Name, "id", g.ID)
+	notifier := adminNotifier
+	go func() {
+		if notifier != nil {
+			notifier.NotifyGuildJoin(g.Guild)
+		}
+		commands.SendWelcomeMessage(s, g)
+	}()
+}
+
+func (t *guildEventTracker) markUnavailable(guildID string) {
+	t.unavailableGuilds[guildID] = struct{}{}
+	if err := service.MarkGuildUnavailable(guildID); err != nil {
+		logger.Error("Failed to persist unavailable guild", "error", err, "guild_id", guildID)
+	}
+}
+
+func (t *guildEventTracker) consumeRecovery(guildID string) bool {
+	if _, recovered := t.unavailableGuilds[guildID]; !recovered {
+		return false
+	}
+	delete(t.unavailableGuilds, guildID)
+	if err := service.ClearGuildUnavailable(guildID); err != nil {
+		logger.Error("Failed to clear unavailable guild", "error", err, "guild_id", guildID)
+	}
+	return true
+}
+
+func (t *guildEventTracker) guildCreate(s *discordgo.Session, g *discordgo.GuildCreate) {
+	metrics.SetConnectedGuilds(countAllGuilds())
+	if g.Unavailable {
+		t.markUnavailable(g.ID)
+		logger.Warn("Guild unavailable", "id", g.ID)
+		if !botReady.Load() {
+			cacheGuildCreate(g)
+		}
+		return
+	}
+
+	if t.consumeRecovery(g.ID) {
+		logger.Info("Guild available again", "name", g.Name, "id", g.ID)
+		if !botReady.Load() {
+			cacheGuildCreate(g)
+		}
+		return
+	}
+
+	if !botReady.Load() {
+		cacheGuildCreate(g)
+		return
+	}
+
+	notifyGuildJoin(s, g)
+}
+
+func (t *guildEventTracker) prepareGuildDelete(g *discordgo.GuildDelete) bool {
+	if g.Unavailable {
+		t.markUnavailable(g.ID)
+		logger.Warn("Guild temporarily unavailable", "id", g.ID)
+		return false
+	}
+
+	// A definitive delete supersedes any earlier temporary-unavailable event.
+	delete(t.unavailableGuilds, g.ID)
+	if err := service.ClearGuildUnavailable(g.ID); err != nil {
+		logger.Error("Failed to clear unavailable guild", "error", err, "guild_id", g.ID)
+	}
 	logger.Info("Left guild", "id", g.ID)
 	metrics.SetConnectedGuilds(countAllGuilds())
 
 	// Clear welcome-sent flag so re-invitation triggers a new welcome message
 	commands.ClearGuildWelcomeSent(g.ID)
+	return true
+}
 
+func cleanupGuildData(g *discordgo.GuildDelete, notifier *adminnotify.Manager, notify bool) {
 	// Clean up guild data
 	senryuCount, err := service.DeleteSenryuByServer(g.ID)
 	if err != nil {
@@ -457,9 +553,18 @@ func guildDelete(s *discordgo.Session, g *discordgo.GuildDelete) {
 		"channel_configs", channelConfigCount,
 	)
 
-	if botReady.Load() && adminNotifier != nil {
-		adminNotifier.NotifyGuildLeave(g, senryuCount, optOutCount)
+	if notify {
+		notifier.NotifyGuildLeave(g, senryuCount, optOutCount)
 	}
+}
+
+func (t *guildEventTracker) guildDelete(_ *discordgo.Session, g *discordgo.GuildDelete) {
+	if !t.prepareGuildDelete(g) {
+		return
+	}
+
+	notifier := adminNotifier
+	go cleanupGuildData(g, notifier, botReady.Load() && notifier != nil)
 }
 
 func interactionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
