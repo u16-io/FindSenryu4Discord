@@ -35,4 +35,4 @@ services:
       TZ: Asia/Tokyo
     # healthcheck disabled — distroless has no shell/curl
     # Use Docker restart policy for recovery
-    stop_grace_period: 30s
+    stop_grace_period: 2m
