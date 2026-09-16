@@ -36,6 +36,23 @@ func TestRegisterGatewayHandlers_Guildイベントを同期ディスパッチす
 	}
 }
 
+func TestReady_Readyに含まれるGuildだけを初期キャッシュ扱いにする(t *testing.T) {
+	tracker := newGuildEventTracker()
+	tracker.ready(&discordgo.Session{ShardID: 0}, &discordgo.Ready{
+		Guilds: []*discordgo.Guild{{ID: "existing-guild"}},
+	})
+
+	if !tracker.consumeInitialGuild("existing-guild") {
+		t.Error("a guild listed in Ready should be treated as initial cache")
+	}
+	if tracker.consumeInitialGuild("existing-guild") {
+		t.Error("an initial guild should be consumed only once")
+	}
+	if tracker.consumeInitialGuild("new-guild") {
+		t.Error("a guild not listed in Ready should be treated as a new join")
+	}
+}
+
 func TestGuildCreate_Bot再起動後もUnavailableDeleteからの復旧扱いにする(t *testing.T) {
 	setupTestDB(t)
 	const guildID = "temporarily-unavailable-guild"
